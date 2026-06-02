@@ -1,0 +1,31 @@
+{
+  "name": "@duel/client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@duel/shared": "workspace:*",
+    "@duel/engine": "workspace:*",
+    "@duel/ai": "workspace:*",
+    "@duel/ui": "workspace:*",
+    "@duel/local-backend": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "electron": "^32.0.0",
+    "electron-vite": "^2.3.0",
+    "vite": "^5.4.0"
+  }
+}

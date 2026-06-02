@@ -1,0 +1,749 @@
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Hide scrollbars everywhere while keeping scroll behavior. */
+* {
+  scrollbar-width: none; /* Firefox */
+}
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none; /* Chromium / Electron */
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: #111;
+  color: #eee;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.tabs {
+  position: relative; /* positioning context for the right-pinned settings gear */
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+  background: #1a1a1a;
+  border-bottom: 1px solid #2a2a2a;
+  -webkit-app-region: drag; /* let the user drag the window by the tab bar on macOS */
+}
+/* Settings gear, pinned to the far right of the nav (not a content tab). */
+.tab-icon {
+  -webkit-app-region: no-drag;
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: color 120ms ease;
+}
+.tab-icon:hover { color: #ddd; }
+.tab-icon--active { color: #fff; }
+.tab-icon:focus-visible { outline: 2px solid #4a4a4a; outline-offset: 1px; }
+
+.tab {
+  -webkit-app-region: no-drag;
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #888;
+  padding: 12px 22px;
+  font: inherit;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.tab:hover {
+  color: #ddd;
+}
+
+.tab--active {
+  color: #fff;
+  border-bottom-color: #fff;
+}
+
+.tab:focus-visible {
+  outline: 2px solid #4a90e2;
+  outline-offset: -2px;
+}
+
+.page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 32px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+}
+
+/* ---- Duel section: 5-card bento grid ---- */
+.duel-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.3fr;
+  grid-template-rows: 1fr 1fr 1fr;
+  grid-template-areas:
+    "adv gen hunt"
+    "adv gen action"
+    "adv gen draft";
+  gap: 10px;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+}
+
+.duel-card {
+  -webkit-app-region: no-drag;
+  appearance: none;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 0; /* hard edges */
+  color: #eee;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-end;
+  padding: 20px;
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.duel-card:hover {
+  background: #222;
+  border-color: #555;
+}
+
+.duel-card:focus-visible {
+  outline: 2px solid #4a90e2;
+  outline-offset: -2px;
+}
+
+.duel-card__label {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* two tall vertical cards on the left (identical size) */
+.duel-card--g1 {
+  grid-area: adv;
+}
+.duel-card--g2 {
+  grid-area: gen;
+}
+
+/* three horizontal cards stacked on the right */
+.duel-card--g3 {
+  grid-area: hunt;
+}
+.duel-card--g4 {
+  grid-area: action;
+}
+.duel-card--g5 {
+  grid-area: draft;
+}
+
+/* ---- Cards section: database searcher (all hard edges) ---- */
+.cards {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 12px;
+}
+
+.cards--message {
+  align-items: flex-start;
+  justify-content: center;
+  color: #aaa;
+}
+.cards__hint {
+  color: #888;
+  font-size: 13px;
+}
+.cards code {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 0;
+  padding: 1px 5px;
+  font-size: 12px;
+}
+
+.cards__toolbar {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.cards__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cards__field--grow {
+  flex: 1;
+  min-width: 180px;
+}
+.cards__field--narrow {
+  width: 76px;
+}
+
+.cards__label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #888;
+}
+
+.cards__input {
+  appearance: none;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 0; /* hard edges */
+  color: #eee;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 10px;
+}
+.cards__input:hover {
+  border-color: #444;
+}
+.cards__input:focus {
+  outline: none;
+  border-color: #4a90e2;
+}
+
+.cards__reset {
+  -webkit-app-region: no-drag;
+  appearance: none;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 0;
+  color: #ddd;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 500;
+  padding: 8px 16px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.cards__reset:hover {
+  background: #222;
+  border-color: #555;
+}
+
+.cards__meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #888;
+}
+
+.cards__none {
+  color: #888;
+  padding: 24px 0;
+}
+
+/* Body: fixed-width preview viewer on the left, scrolling results on the right. */
+.cards__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 16px;
+}
+
+.cards__viewer {
+  flex: 0 0 320px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  border-right: 1px solid #2a2a2a;
+  padding-right: 16px;
+}
+
+.cards__viewer-art {
+  width: 100%;
+  aspect-ratio: 813 / 1185; /* full-card proportions */
+  object-fit: contain;
+  background: #111;
+  border: 1px solid #2a2a2a;
+  border-radius: 0; /* hard edges */
+  display: block;
+}
+
+.cards__viewer-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cards__viewer-name {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.cards__viewer-sub {
+  font-size: 12px;
+  color: #999;
+}
+.cards__viewer-atk {
+  font-size: 12px;
+  color: #c8a24a;
+  font-variant-numeric: tabular-nums;
+}
+.cards__viewer-desc {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #cfcfcf;
+  white-space: pre-wrap;
+}
+
+.cards__results {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Hide scrollbars in the Cards scroll areas (still scrolls via wheel/trackpad). */
+.cards__grid::-webkit-scrollbar,
+.cards__viewer::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.cards__grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  /* Fixed-width columns: cards keep a constant size; the grid adds as many
+     columns as fit, then grows DOWNWARD with more rows you scroll through. */
+  grid-template-columns: repeat(auto-fill, 170px);
+  grid-auto-rows: max-content; /* rows are content-height, never stretched */
+  justify-content: start;
+  gap: 14px;
+  align-content: start;
+}
+
+/* End-of-list marker that drives infinite scroll. Spans the full grid row. */
+.cards__sentinel {
+  grid-column: 1 / -1;
+  height: 1px;
+}
+
+.card-tile {
+  /* Fixed card size — matches the 170px grid column. Cards never resize to
+     fit the viewport; the grid scrolls instead. */
+  width: 170px;
+  display: flex;
+  flex-direction: column;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 0; /* hard edges */
+  overflow: hidden;
+  transition: border-color 120ms ease;
+}
+.card-tile:hover {
+  border-color: #555;
+}
+
+.card-tile__art {
+  width: 170px;
+  height: 248px; /* 170 × (1185/813) — full-card proportions, fixed */
+  object-fit: contain; /* show the whole card, never crop */
+  background: #111;
+  border-radius: 0;
+  display: block;
+}
+.card-tile { cursor: pointer; }
+
+/* ===================== Card detail page ===================== */
+.detail { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.detail__bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #2a2a2a;
+}
+.detail__back {
+  background: #1a1a1a;
+  color: #ddd;
+  border: 1px solid #2a2a2a;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 0;
+}
+.detail__back:hover { border-color: #555; }
+.detail__crumb { color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+.detail__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 28px;
+  overflow-y: auto;
+  padding-top: 20px;
+}
+/* The card itself (art/name/stats/effect) is the shared CardViewer on the
+ * left; this column carries only the extra detail. */
+.detail__info { flex: 1; min-width: 0; overflow-y: auto; }
+.detail__type { font-size: 16px; font-weight: 600; margin-bottom: 2px; }
+
+.detail__facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
+  margin: 14px 0 22px;
+  font-size: 13px;
+}
+.detail__facts dt { color: #888; text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; align-self: center; }
+.detail__facts dd { margin: 0; color: #e0e0e0; }
+.detail__link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: #6fb6ff;
+  cursor: pointer;
+  text-align: left;
+}
+.detail__link:hover { text-decoration: underline; }
+
+/* Banlist (left) / Genesys (right) history, side by side */
+.detail__hist-row { display: flex; gap: 28px; margin-bottom: 22px; align-items: flex-start; }
+.detail__hist { flex: 1; min-width: 0; }
+.detail__hist-note { color: #777; font-size: 13px; }
+.detail__hist-current { font-size: 18px; font-weight: 700; color: #f0f0f0; margin-bottom: 8px; }
+.detail__hist-cur-label { font-size: 11px; font-weight: 500; color: #888; text-transform: uppercase; letter-spacing: 0.04em; }
+.detail__hist-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.detail__hist-list li { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
+.detail__hist-status { font-weight: 600; min-width: 56px; }
+.detail__hist-range { color: #aaa; }
+
+.detail__sets { margin-top: 4px; }
+.detail__sets-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: #888; margin: 0 0 10px; }
+.detail__sets-none { color: #777; font-size: 13px; }
+.detail__sets-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.detail__sets-table th {
+  text-align: left;
+  color: #888;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px 12px 6px 0;
+  border-bottom: 1px solid #2a2a2a;
+}
+.detail__sets-table td { padding: 7px 12px 7px 0; border-bottom: 1px solid #1c1c1c; color: #d8d8d8; vertical-align: top; }
+.detail__sets-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #cda434; white-space: nowrap; }
+.detail__sets-row { cursor: pointer; }
+.detail__sets-row:hover td { background: #1a1a1a; color: #fff; }
+.detail__sets-row:hover .detail__sets-code { color: #e6c14e; }
+
+/* ===================== Set detail page ===================== */
+.setview { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.setview__head { flex-shrink: 0; padding: 18px 0 14px; border-bottom: 1px solid #2a2a2a; }
+/* Body: fixed-width preview viewer on the left, scrolling card grid on the right. */
+.setview__body { flex: 1; min-height: 0; display: flex; gap: 16px; padding-top: 16px; }
+.setview__name { font-size: 24px; margin: 0 0 6px; color: #f0f0f0; }
+.setview__meta { display: flex; gap: 8px; align-items: center; font-size: 13px; color: #aaa; }
+.setview__code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #cda434; }
+.setview__none { color: #888; padding: 24px 0; }
+.setview__grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 150px);
+  gap: 16px;
+  align-content: start;
+}
+.setview__tile { width: 150px; cursor: pointer; }
+.setview__art {
+  width: 150px;
+  height: 219px; /* full-card proportions */
+  object-fit: contain;
+  background: #111;
+  display: block;
+  border: 1px solid #2a2a2a;
+}
+.setview__tile:hover .setview__art { border-color: #555; }
+.setview__tile-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #cda434;
+  margin-top: 5px;
+}
+.setview__tile-name {
+  font-size: 12px;
+  color: #cfcfcf;
+  line-height: 1.25;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* ===================== All sets page ===================== */
+.allsets { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.allsets__head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0 12px;
+  border-bottom: 1px solid #2a2a2a;
+}
+.allsets__title { font-size: 22px; margin: 0; color: #f0f0f0; }
+.allsets__filter { max-width: 320px; }
+.allsets__count { color: #888; font-size: 12px; margin-left: auto; }
+.allsets__scroll { flex: 1; min-height: 0; overflow-y: auto; padding-top: 8px; }
+.allsets__table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.allsets__table thead th {
+  position: sticky;
+  top: 0;
+  background: #111;
+  text-align: left;
+  color: #888;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 8px 14px 8px 0;
+  border-bottom: 1px solid #2a2a2a;
+}
+.allsets__table td { padding: 9px 14px 9px 0; border-bottom: 1px solid #1c1c1c; color: #ddd; }
+.allsets__row { cursor: pointer; }
+.allsets__row:hover td { background: #1a1a1a; color: #fff; }
+.allsets__code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #cda434; white-space: nowrap; }
+.allsets__num { text-align: right; white-space: nowrap; }
+
+/* ===================== Deck page ===================== */
+/* --- deck list (no card viewer) --- */
+.decklist { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 16px; }
+.decklist__head { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+.decklist__msg { color: #888; }
+.decklist__grid {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px; align-content: start;
+}
+.decklist__grid::-webkit-scrollbar { width: 0; height: 0; }
+.deckcard {
+  display: flex; flex-direction: column; gap: 8px;
+  background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 0; padding: 14px;
+  transition: border-color 120ms ease;
+}
+.deckcard:hover { border-color: #555; }
+.deckcard__name { font-size: 16px; font-weight: 600; }
+.deckcard__counts { font-size: 12px; color: #999; }
+.deckcard__tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.deckcard__actions { display: flex; gap: 8px; margin-top: auto; }
+
+/* --- buttons / tags (shared, hard edges) --- */
+.btn {
+  -webkit-app-region: no-drag; appearance: none; cursor: pointer;
+  background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 0;
+  color: #ddd; font: inherit; font-weight: 500; padding: 7px 14px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.btn:hover { background: #222; border-color: #555; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn--primary { background: #2b4a6f; border-color: #3a6094; color: #fff; }
+.btn--primary:hover:not(:disabled) { background: #335a86; }
+.btn--danger:hover { background: #5a2020; border-color: #934; color: #fff; }
+.tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #222; border: 1px solid #333; border-radius: 0;
+  font-size: 11px; color: #cfcfcf; padding: 2px 7px;
+}
+.tag__x { appearance: none; background: none; border: none; color: #888; cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
+.tag__x:hover { color: #fff; }
+
+/* --- editor --- */
+.editor { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 12px; }
+.editor__bar { display: flex; align-items: center; gap: 12px; flex-shrink: 0; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid #2a2a2a; }
+.editor__name {
+  appearance: none; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 0;
+  color: #fff; font: inherit; font-size: 18px; font-weight: 600; padding: 6px 10px; min-width: 220px;
+}
+.editor__name:focus { outline: none; border-color: #4a90e2; }
+.editor__toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #aaa; }
+.editor__spacer { flex: 1; }
+.editor__issues { font-size: 12px; color: #c8a24a; }
+
+.tagedit { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.tagedit__input {
+  appearance: none; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 0;
+  color: #eee; font: inherit; font-size: 12px; padding: 4px 8px; width: 80px;
+}
+.tagedit__input:focus { outline: none; border-color: #4a90e2; }
+
+.editor__body { flex: 1; min-height: 0; display: flex; gap: 14px; }
+.editor__viewer { flex: 0 0 280px; width: 280px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; border-right: 1px solid #2a2a2a; padding-right: 14px; }
+.editor__viewer::-webkit-scrollbar { width: 0; height: 0; }
+
+.editor__zones { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.editor__zones::-webkit-scrollbar { width: 0; height: 0; }
+
+.zone { display: flex; flex-direction: column; border: 1px solid #2a2a2a; background: #141414; }
+.zone__head { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-bottom: 1px solid #2a2a2a; background: #1a1a1a; }
+.zone__label { font-weight: 600; letter-spacing: 0.03em; }
+.zone__count { font-size: 12px; color: #999; font-variant-numeric: tabular-nums; }
+.zone__grid {
+  /* Column template / gaps / card size are set inline per zone (responsive,
+     with overlap past 10 columns). Keep only the container chrome here. */
+  display: grid;
+  padding: 8px; min-height: 96px; align-content: start; justify-content: start;
+  overflow: visible;
+}
+/* Zone tiles can be narrower than the card art when overlapping; let the art
+   overflow its track so cards visibly overlay, newest on top. */
+.mini--zone { overflow: visible; }
+.mini--zone:hover { z-index: 5; }
+
+/* --- mini card tiles (zones + search) --- */
+.mini { position: relative; width: 72px; height: 105px; cursor: pointer; background: #111; border: 1px solid #2a2a2a; border-radius: 0; }
+.mini:hover { border-color: #4a90e2; }
+.mini__art { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 0; }
+.mini__count {
+  position: absolute; right: 2px; bottom: 2px; min-width: 16px; text-align: center;
+  background: #000a; border: 1px solid #555; color: #fff; font-size: 11px; font-weight: 600;
+  padding: 0 3px; font-variant-numeric: tabular-nums;
+}
+.mini__count--dim { background: #000a; border-color: #3a6094; }
+
+/* --- search panel (right) --- */
+.searchpanel { flex: 0 0 360px; width: 360px; display: flex; flex-direction: column; gap: 10px; border-left: 1px solid #2a2a2a; padding-left: 14px; min-height: 0; }
+.searchpanel__filters { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+.searchpanel__row { display: flex; gap: 8px; }
+.searchpanel__row .cards__input { flex: 1; min-width: 0; }
+.searchpanel__meta { font-size: 11px; color: #888; }
+.searchpanel__grid {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: grid; grid-template-columns: repeat(auto-fill, 72px); gap: 6px; align-content: start;
+}
+.searchpanel__grid::-webkit-scrollbar { width: 0; height: 0; }
+
+/* --- banlist status badges (deck editor) --- */
+.banbadge {
+  display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: 0.03em;
+  padding: 2px 8px; border-radius: 0; border: 1px solid;
+}
+.banbadge--inline { align-self: flex-start; margin: 2px 0; }
+.banbadge--forbidden  { color: #ff6b6b; border-color: #6b2020; background: #2a1414; }
+.banbadge--limited    { color: #ffb347; border-color: #6b4a20; background: #2a2014; }
+.banbadge--semi       { color: #ffe66d; border-color: #6b6320; background: #2a2814; }
+.banbadge--unlimited  { color: #6fcf97; border-color: #20502f; background: #14241a; }
+.banbadge--unreleased { color: #888;    border-color: #444;    background: #1a1a1a; }
+
+/* corner dot/stripe on mini tiles */
+.minibadge {
+  position: absolute; top: 0; left: 0; width: 0; height: 0;
+  border-style: solid; border-width: 16px 16px 0 0; pointer-events: none; z-index: 2;
+}
+.minibadge--forbidden  { border-color: #ff4d4d transparent transparent transparent; }
+.minibadge--limited    { border-color: #ff9f1a transparent transparent transparent; }
+.minibadge--semi       { border-color: #ffe14d transparent transparent transparent; }
+.minibadge--unreleased { border-color: #777 transparent transparent transparent; }
+
+/* Genesys point cost: viewer badge, corner chip, and deck total */
+.banbadge--genesys { color: #8ab4ff; border-color: #294a7a; background: #14202e; }
+.minipts {
+  position: absolute; top: 2px; left: 2px; min-width: 16px; text-align: center;
+  background: #0b1626cc; border: 1px solid #294a7a; color: #8ab4ff;
+  font-size: 11px; font-weight: 700; line-height: 1.3; padding: 0 3px; z-index: 2;
+  font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.editor__points { font-size: 12px; color: #8ab4ff; font-variant-numeric: tabular-nums; }
+.editor__points--over { color: #ff6b6b; font-weight: 600; }
+
+/* --- format picker (deck editor) --- */
+.fmtpick { position: relative; display: flex; align-items: center; gap: 6px; }
+.fmtpick__btn {
+  appearance: none; display: inline-flex; align-items: center; gap: 8px;
+  background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 0;
+  color: #eee; font: inherit; font-size: 12px; padding: 5px 8px; cursor: pointer; min-width: 150px;
+}
+.fmtpick__btn:hover { border-color: #4a90e2; }
+.fmtpick__btn-label { flex: 1; text-align: left; white-space: nowrap; }
+.fmtpick__caret { color: #888; font-size: 10px; }
+.fmtpick__menu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; min-width: 200px;
+  background: #161616; border: 1px solid #333; box-shadow: 0 8px 24px #000a; padding: 4px;
+}
+.fmtpick__item {
+  appearance: none; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; width: 100%;
+  background: none; border: none; color: #ddd; font: inherit; font-size: 12px; text-align: left;
+  padding: 5px 8px; cursor: pointer;
+}
+.fmtpick__item:hover { background: #243a55; color: #fff; }
+.fmtpick__item.is-active { background: #1f3047; color: #fff; }
+.fmtpick__date { font-variant-numeric: tabular-nums; }
+.fmtpick__detail { color: #888; font-size: 11px; }
+.fmtpick__item:hover .fmtpick__detail { color: #bcd; }
+.fmtpick__group { border-top: 1px solid #2a2a2a; margin-top: 4px; padding-top: 4px; }
+.fmtpick__grouphead { display: flex; justify-content: space-between; align-items: center; padding: 2px 8px; }
+.fmtpick__grouptitle { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #777; }
+.fmtpick__history { position: relative; }
+.fmtpick__clock {
+  appearance: none; background: none; border: none; color: #888; cursor: pointer;
+  font-size: 13px; line-height: 1; padding: 2px;
+}
+.fmtpick__history:hover .fmtpick__clock { color: #8ab4ff; }
+.fmtpick__flyout {
+  position: absolute; top: -6px; left: calc(100% + 2px); z-index: 30; min-width: 180px; max-height: 320px; overflow-y: auto;
+  background: #161616; border: 1px solid #333; box-shadow: 0 8px 24px #000a; padding: 4px;
+}
+.fmtpick__flyout::-webkit-scrollbar { width: 8px; }
+.fmtpick__flyout::-webkit-scrollbar-thumb { background: #333; }
+
+/* ===================== Settings page ===================== */
+.settings { padding: 8px 4px; }
+.settings h1 { margin: 0 0 20px; color: #f0f0f0; }
+.settings__section { margin-bottom: 24px; }
+.settings__heading { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: #888; margin: 0 0 10px; }
+.settings__about { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; font-size: 14px; max-width: 360px; }
+.settings__about dt { color: #888; }
+.settings__about dd { margin: 0; color: #e0e0e0; }
+.settings__note { color: #777; font-size: 13px; }

@@ -1,0 +1,8 @@
+packages:
+  - "shared"
+  - "engine"
+  - "ai"
+  - "ui"
+  - "client"
+  - "local-backend"
+  - "relay-server"

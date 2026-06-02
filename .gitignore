@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Agent instructions — local only, never committed
+.claude/
+
+# Private review notes — local only
+reds-reviews/
+
+assets/ 
+# (Konami card data, art, render templates) IS tracked — this is a
+# PRIVATE repo and assets/konami/ is now the hand-curated source of truth, not
+# safely regenerable from scratch (manual edits, censorship fixes, the DUAD
+# patch would be lost). Keep this repo private; never push to a public mirror.
