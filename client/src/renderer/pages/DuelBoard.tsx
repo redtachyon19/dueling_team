@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { CardData, DuelCard, DuelOption, DuelPhase, DuelPrompt, DuelResponse, DuelState, DuelUpdate, PromptCard } from "@duel/shared";
 import cardBack from "../../../../assets/cards/sleeves/original_card_sleeve.png";
 
@@ -12,6 +12,53 @@ const PHASES: { key: DuelPhase; label: string }[] = [
   { key: "main2", label: "M2" },
   { key: "end", label: "EP" },
 ];
+
+// --- Gesture support --------------------------------------------------------
+// Drag a hand card onto the board to play it; modifiers pick the mode. The
+// gesture just selects the matching idle-prompt option (the engine already
+// offers "Normal Summon" / "Set" / "Activate" per card), then auto-answers the
+// follow-up zone placement with the zone the card was dropped on.
+type Mods = { shift: boolean; meta: boolean; ctrl: boolean };
+type DragState = { seq: number; code: number | null; isMonster: boolean; x: number; y: number; valid: boolean; mods: Mods };
+
+const readMods = (e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }): Mods =>
+  ({ shift: e.shiftKey, meta: e.metaKey, ctrl: e.ctrlKey });
+
+/** The board zone (data-loc/data-seq) under a screen point, if any. */
+function zoneAtPoint(x: number, y: number): { loc: string | undefined; seq: number } {
+  const el = document.elementFromPoint(x, y) as HTMLElement | null;
+  const z = el?.closest("[data-loc]") as HTMLElement | null;
+  return { loc: z?.dataset.loc, seq: z ? Number(z.dataset.seq) : NaN };
+}
+
+/**
+ * Pick the idle option a drop maps to. Monsters go to the monster row (Normal
+ * Summon / Set with Shift / Special Summon with ⌘/Ctrl); spells & traps go to
+ * the spell/trap row (Activate / Set with Shift). Returns undefined when the
+ * drop zone or the requested mode doesn't apply to this card.
+ */
+function gestureOption(opts: DuelOption[], isMonster: boolean, dropLoc: string | undefined, mods: Mods): DuelOption | undefined {
+  const find = (prefix: string) => opts.find((o) => o.id.startsWith(prefix + ":"));
+  if (isMonster) {
+    if (dropLoc !== "mzone") return undefined;
+    if (mods.shift) return find("mset");
+    if (mods.meta || mods.ctrl) return find("activate"); // special summon, if the card offers one
+    return find("summon");
+  }
+  if (dropLoc !== "szone" && dropLoc !== "fzone") return undefined;
+  if (mods.shift) return find("sset");
+  return find("activate");
+}
+
+/** Label shown under the drag ghost for the current modifier state. */
+function dragHint(d: DragState): string {
+  if (d.isMonster) {
+    if (d.mods.shift) return "Set";
+    if (d.mods.meta || d.mods.ctrl) return "Special Summon";
+    return "Normal Summon";
+  }
+  return d.mods.shift ? "Set" : "Activate";
+}
 
 export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => void }): JSX.Element {
   const [state, setState] = useState<DuelState | null>(null);
@@ -50,6 +97,18 @@ export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => vo
   const [menu, setMenu] = useState<{ promptId: number; options: DuelOption[]; x: number; y: number } | null>(null);
   useEffect(() => setMenu(null), [prompt?.id]);
 
+  // --- Gestures: drag-to-play + long-press-to-surrender ---------------------
+  const [drag, setDrag] = useState<DragState | null>(null);
+  const dragRef = useRef<DragState | null>(null);
+  const [press, setPress] = useState<{ x: number; y: number; k: number } | null>(null);
+  const pressRef = useRef<{ timer: number; raf: number; start: number; x: number; y: number } | null>(null);
+  const pressCleanupRef = useRef<(() => void) | null>(null);
+  // The zone option id ("m:2" / "s:1", or "*" for any) to auto-pick on the next
+  // SELECT_PLACE prompt that a gesture triggers.
+  const pendingPlaceRef = useRef<string | null>(null);
+  // Set true after a completed drag so the trailing synthetic click is ignored.
+  const suppressClickRef = useRef(false);
+
   const cardOptions = prompt && (prompt.kind === "idle" || prompt.kind === "battle")
     ? prompt.options.filter((o) => o.loc != null)
     : [];
@@ -76,7 +135,24 @@ export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => vo
   }, [prompt?.id]);
   const targets = useMemo(() => new Set(placeTargets.keys()), [placeTargets]);
 
+  // A drag that picked a summon/set/activate is followed by a SELECT_PLACE
+  // prompt; auto-answer it with the dropped zone (falling back to any open one)
+  // so the whole play happens in one gesture. Clears once the turn returns to
+  // an idle/battle decision.
+  useEffect(() => {
+    if (!prompt) return;
+    if (prompt.kind === "idle" || prompt.kind === "battle") { pendingPlaceRef.current = null; return; }
+    if (prompt.kind === "selectPlace" && pendingPlaceRef.current != null) {
+      const want = pendingPlaceRef.current;
+      pendingPlaceRef.current = null;
+      const pick = (want !== "*" && prompt.options.find((o) => o.id === want)) || prompt.options[0];
+      if (pick) respond({ promptId: prompt.id, type: "option", id: pick.id });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompt?.id]);
+
   const onBoardClick = (e: ReactMouseEvent) => {
+    if (suppressClickRef.current) { suppressClickRef.current = false; return; }
     if (!prompt) return;
     const el = (e.target as HTMLElement).closest("[data-loc]") as HTMLElement | null;
     if (prompt.kind === "idle" || prompt.kind === "battle") {
@@ -122,6 +198,102 @@ export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => vo
 
   const respond = (r: DuelResponse) => window.duel.match.respond(r);
 
+  // Long-press the deck for 3s to surrender. A ring fills around the press
+  // point; moving away or releasing early cancels.
+  const cancelPress = () => {
+    const p = pressRef.current;
+    if (p) { clearTimeout(p.timer); cancelAnimationFrame(p.raf); pressRef.current = null; }
+    pressCleanupRef.current?.();
+    pressCleanupRef.current = null;
+    setPress(null);
+  };
+  const beginPress = (e: ReactPointerEvent) => {
+    cancelPress();
+    const x = e.clientX, y = e.clientY;
+    const DUR = 3000;
+    const tick = () => {
+      const p = pressRef.current;
+      if (!p) return;
+      const k = Math.min(1, (performance.now() - p.start) / DUR);
+      setPress({ x: p.x, y: p.y, k });
+      if (k < 1) p.raf = requestAnimationFrame(tick);
+    };
+    const timer = window.setTimeout(() => { cancelPress(); window.duel.match.surrender(); }, DUR);
+    pressRef.current = { timer, raf: requestAnimationFrame(tick), start: performance.now(), x, y };
+    setPress({ x, y, k: 0 });
+    const onMove = (ev: PointerEvent) => {
+      const p = pressRef.current;
+      if (p && Math.hypot(ev.clientX - p.x, ev.clientY - p.y) > 16) cancelPress();
+    };
+    const onEnd = () => cancelPress();
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+    pressCleanupRef.current = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+  };
+
+  // Drag a hand card; on release, map the drop (+ modifiers) to an idle option.
+  // The ghost only appears once the pointer travels past a small threshold, so a
+  // plain click still falls through to the card's action menu.
+  const beginDrag = (e: ReactPointerEvent, seq: number, el: HTMLElement) => {
+    const code = el.dataset.code ? Number(el.dataset.code) : null;
+    const isMonster = code != null && /Monster/i.test(cardsRef.current.get(code)?.type ?? "");
+    const start = { x: e.clientX, y: e.clientY };
+    dragRef.current = { seq, code, isMonster, x: start.x, y: start.y, valid: false, mods: readMods(e) };
+    let active = false;
+
+    const onMove = (ev: PointerEvent) => {
+      const ds = dragRef.current;
+      if (!ds) return;
+      if (!active && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 5) {
+        dragRef.current = { ...ds, x: ev.clientX, y: ev.clientY, mods: readMods(ev) };
+        return; // not yet a drag — keep it clickable
+      }
+      active = true;
+      const loc = zoneAtPoint(ev.clientX, ev.clientY).loc;
+      const valid = ds.isMonster ? loc === "mzone" : (loc === "szone" || loc === "fzone");
+      const next: DragState = { ...ds, x: ev.clientX, y: ev.clientY, valid, mods: readMods(ev) };
+      dragRef.current = next;
+      setDrag(next);
+    };
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      const ds = dragRef.current;
+      dragRef.current = null;
+      setDrag(null);
+      if (!ds || !active) return; // a click, not a drag → let the menu handle it
+      suppressClickRef.current = true; // swallow the synthetic click after a real drag
+      if (!prompt || prompt.kind !== "idle") return;
+      const { loc, seq: dropSeq } = zoneAtPoint(ev.clientX, ev.clientY);
+      const opts = prompt.options.filter((o) => o.loc === "hand" && o.seq === ds.seq);
+      const opt = gestureOption(opts, ds.isMonster, loc, readMods(ev));
+      if (!opt) return; // dropped on the wrong row, or that mode isn't available
+      pendingPlaceRef.current = loc === "mzone" ? `m:${dropSeq}` : loc === "szone" ? `s:${dropSeq}` : "*";
+      respond({ promptId: prompt.id, type: "option", id: opt.id });
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
+  };
+
+  const onPointerDown = (e: ReactPointerEvent) => {
+    const t = e.target as HTMLElement;
+    if (t.closest('[data-deck="local"]')) { beginPress(e); return; }
+    if (!prompt || prompt.kind !== "idle") return;
+    const handEl = t.closest('[data-loc="hand"]') as HTMLElement | null;
+    if (!handEl) return;
+    const seq = Number(handEl.dataset.seq);
+    if (!actionable.has(`hand:${seq}`)) return; // no playable action on this card
+    beginDrag(e, seq, handEl);
+  };
+
+  // Cancel a held long-press if the board unmounts mid-gesture.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => cancelPress(), []);
+
   if (error) {
     return (
       <div className="duelboard">
@@ -137,14 +309,38 @@ export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => vo
   const me = state.players[0];
   const opp = state.players[1];
 
+  const dragCls = drag ? (drag.isMonster ? " is-drag-mon" : " is-drag-st") : "";
+
   return (
-    <div className="duelboard" onMouseOver={onHover} onClick={onBoardClick}>
+    <div className={`duelboard${dragCls}`} onMouseOver={onHover} onClick={onBoardClick} onPointerDown={onPointerDown}>
       {menu && (
         <CardMenu
           menu={menu}
           nameOf={nameOf}
           onPick={(o) => { respond({ promptId: menu.promptId, type: "option", id: o.id }); setMenu(null); }}
         />
+      )}
+      {drag && drag.code != null && (
+        <div className="ddrag" style={{ left: drag.x, top: drag.y }}>
+          <div className={`ddrag__card${drag.valid ? " is-valid" : ""}`}>
+            <CardArt code={drag.code} alt="" />
+          </div>
+          <span className={`ddrag__hint${drag.valid ? " is-valid" : ""}`}>{dragHint(drag)}</span>
+        </div>
+      )}
+      {press && (
+        <div className="dsurrender" style={{ left: press.x, top: press.y }}>
+          <svg className="dsurrender__ring" viewBox="0 0 48 48" aria-hidden="true">
+            <circle className="dsurrender__track" cx="24" cy="24" r="20" />
+            <circle
+              className="dsurrender__fill"
+              cx="24" cy="24" r="20"
+              strokeDasharray={2 * Math.PI * 20}
+              strokeDashoffset={2 * Math.PI * 20 * (1 - press.k)}
+            />
+          </svg>
+          <span className="dsurrender__label">Surrender</span>
+        </div>
       )}
       <div className="duelboard__bar">
         <button className="btn" onClick={onExit}>← Decks</button>
@@ -213,7 +409,7 @@ function PlayerSide({ who, p, flip, active, local = false, actionable, targets, 
       <div className="dzone-spacer" aria-hidden="true" />
       <Pile kind="extra" label="Extra" count={p.extraCount} />
       <ZoneCells kind="st" cards={p.spells} nameOf={nameOf} local={local} actionable={actionable} targets={targets} />
-      <Pile kind="deck" label="Deck" count={p.deckCount} />
+      <Pile kind="deck" label="Deck" count={p.deckCount} deckLocal={local} />
       <div className="dzone-spacer" aria-hidden="true" />
     </div>
   );
@@ -270,10 +466,14 @@ function FieldZone({ card, local, actionable, nameOf }: { card: DuelCard | null;
 
 /** A face-down pile (deck / extra / graveyard / banished). Deck & Extra hide
  *  their count; Graveyard & Banished still show theirs. */
-function Pile({ kind, label, count }: { kind: string; label: string; count: number }): JSX.Element {
+function Pile({ kind, label, count, deckLocal }: { kind: string; label: string; count: number; deckLocal?: boolean }): JSX.Element {
   const showCount = count > 0 && kind !== "deck" && kind !== "extra";
   return (
-    <div className={`dzone dzone--pile dzone--${kind}`} title={`${label}: ${count}`}>
+    <div
+      className={`dzone dzone--pile dzone--${kind}`}
+      title={kind === "deck" && deckLocal ? `${label}: ${count} — hold to surrender` : `${label}: ${count}`}
+      data-deck={kind === "deck" && deckLocal ? "local" : undefined}
+    >
       <div className={`dslot dslot--${kind}`}>
         {count > 0 && <img className="dcard__art" src={cardBack} alt={label} />}
         {showCount && <span className="dslot__count">{count}</span>}
@@ -289,16 +489,20 @@ function Pile({ kind, label, count }: { kind: string; label: string; count: numb
  * the card art is never cropped.
  */
 function CardSlot({ card, kind }: { card: DuelCard | null; kind?: string }): JSX.Element {
-  // Empty zone: just the static dashed outline (never rotates).
-  if (!card) return <div className={`dslot${kind ? ` dslot--${kind}` : ""}`} />;
-  // Occupied: the card itself. Only monsters lie horizontal (defense / face-down
-  // defense); the card rotates independently of the zone frame.
-  const rot = kind === "mon" && (card.position === "def" || card.position === "set");
+  // The dashed slot outline is ALWAYS rendered — an occupied card sits inside the
+  // frame rather than replacing it, so the dashed zone outline stays visible even
+  // when a monster is set/summoned. Only monsters lie horizontal (defense /
+  // face-down defense); the card rotates while the dashed frame stays portrait.
+  const rot = card != null && kind === "mon" && (card.position === "def" || card.position === "set");
   return (
-    <div className={`dcard${rot ? " dcard--rot" : ""}`}>
-      <CardArt code={card.faceUp ? card.code : null} alt="" />
-      {card.faceUp && card.atk != null && (
-        <span className="dcard__stats">{card.atk}/{card.def ?? "—"}</span>
+    <div className={`dslot${kind ? ` dslot--${kind}` : ""}`}>
+      {card && (
+        <div className={`dcard${rot ? " dcard--rot" : ""}`}>
+          <CardArt code={card.faceUp ? card.code : null} alt="" />
+          {card.faceUp && card.atk != null && (
+            <span className="dcard__stats">{card.atk}/{card.def ?? "—"}</span>
+          )}
+        </div>
       )}
     </div>
   );
@@ -317,14 +521,16 @@ function Hand({ cards, actionable, nameOf }: { cards: DuelCard[]; actionable: Se
         return (
           <div
             key={i}
-            className={`dhand__card${act ? " is-actionable" : ""}`}
+            className={`dhand__slot${act ? " is-actionable" : ""}`}
             style={{ "--rot": `${rot}deg` } as CSSProperties}
             title={nameOf(c.code)}
             data-code={c.code ?? undefined}
             data-loc="hand"
             data-seq={i}
           >
-            <CardArt code={c.code} alt={nameOf(c.code)} />
+            <div className="dhand__card">
+              <CardArt code={c.code} alt={nameOf(c.code)} />
+            </div>
           </div>
         );
       })}

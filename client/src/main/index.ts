@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import type { Deck } from "@duel/shared";
 import { listDecks, loadDeck, saveDeck, deleteDeck } from "@duel/local-backend";
 import { DuelSession } from "./duel/session.ts";
@@ -249,7 +250,10 @@ ipcMain.handle("genesys:history", async (_e, id: number) => {
 // One active session at a time. Updates (state + prompt + events) are pushed to
 // the renderer over "match:update"; the renderer answers prompts via "match:respond".
 let duelSession: DuelSession | null = null;
-let duelSeed = 0x9e3779b97f4a7c15n;
+// Seed the duel RNG from OS entropy so every app launch (and each duel within
+// it, advanced by the LCG below) deals a freshly shuffled deck. Previously this
+// was a fixed constant, so the first duel after every launch was identical.
+let duelSeed = randomBytes(8).readBigUInt64LE() | 1n;
 
 ipcMain.handle("match:start", async (_e, opts: DuelStartOptions): Promise<DuelStartResult> => {
   duelSession?.end();
@@ -274,6 +278,10 @@ ipcMain.handle("match:start", async (_e, opts: DuelStartOptions): Promise<DuelSt
 
 ipcMain.handle("match:respond", (_e, r: DuelResponse) => {
   duelSession?.respond(r);
+});
+
+ipcMain.handle("match:surrender", () => {
+  duelSession?.surrender();
 });
 
 ipcMain.handle("match:end", () => {

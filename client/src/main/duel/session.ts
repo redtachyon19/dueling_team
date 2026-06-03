@@ -149,6 +149,28 @@ export class DuelSession {
     this.run();
   }
 
+  /** The local player concedes: opponent wins, the duel ends immediately. */
+  surrender(): void {
+    if (this.over) return;
+    this.over = true;
+    this.winner = 1;
+    this.pendingResolve = null;
+    this.pendingPromptId = null;
+    // Build the final state from the still-live handle before tearing it down,
+    // then push a win event so the board flashes "Defeat" like any other loss.
+    const update: DuelUpdate = {
+      state: this.buildState(),
+      prompt: null,
+      events: [{ kind: "win", player: 1 }],
+    };
+    try {
+      if (this.handle) this.core.destroyDuel(this.handle);
+    } catch {
+      /* ignore */
+    }
+    this.onUpdate(update);
+  }
+
   end(): void {
     this.over = true;
     try {

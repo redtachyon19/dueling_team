@@ -747,6 +747,18 @@ h1 {
 .settings__about dt { color: #888; }
 .settings__about dd { margin: 0; color: #e0e0e0; }
 .settings__note { color: #777; font-size: 13px; }
+.settings__gestures { list-style: none; margin: 0; padding: 0; max-width: 560px; display: flex; flex-direction: column; gap: 8px; }
+.settings__gesture {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px;
+  padding: 8px 12px; background: #161616; border: 1px solid #262626; border-radius: 6px;
+}
+.settings__gesture-keys { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.settings__kbd {
+  font: 600 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #cdd3da; background: #232323; border: 1px solid #3a3a3a; border-bottom-width: 2px;
+  border-radius: 4px; padding: 1px 6px; white-space: nowrap;
+}
+.settings__gesture-action { color: #e0e0e0; font-size: 14px; text-align: right; }
 
 /* ===================== Duel setup ===================== */
 .duelsetup { display: flex; flex-direction: column; gap: 12px; height: 100%; }
@@ -814,17 +826,40 @@ h1 {
 .dcard--rot { transform: rotate(90deg); } /* defense / face-down defense monster */
 .dslot .dcard__art, .dcard .dcard__art { width: 100%; height: 100%; object-fit: contain; display: block; }
 
-/* slot accents per zone type */
-.dzone--st .dslot { border-color: #2a3340; }
-.dslot--field { border-color: #3f6b4a; }
+/* Zone accents are keyed to the card-type palette (see FRAME_COLORS): monsters
+   are the Effect-Monster brown (#e0934a); spell/trap zones gradient from the
+   Spell teal (#16a085) to the Trap magenta (#c44f86). */
+.dzone--mon {
+  border-image: linear-gradient(135deg, #d9b94e, #e0934a) 1;
+  background: linear-gradient(135deg, rgba(217, 185, 78, 0.14), rgba(224, 147, 74, 0.14));
+}
+.dzone--mon .dslot { border-color: #8a6034; } /* warm brown dashed (not green) */
+
+.dzone--st {
+  border-image: linear-gradient(135deg, #16a085, #c44f86) 1;
+  background: linear-gradient(135deg, rgba(22, 160, 133, 0.14), rgba(196, 79, 134, 0.14));
+}
+.dzone--st .dslot { border-color: #5b4e63; }
+
+/* The field-spell zone is a Spell zone — tint it the Spell teal. */
+.dzone--fieldz { border-color: #16a085; background: rgba(22, 160, 133, 0.12); }
+.dslot--field { border-color: #16a085; }
+.dzone--fieldz .dzone__tag { color: #4fc3a8; }
+
 .dzone__tag { position: absolute; font-size: 9px; color: #5f8f6a; text-transform: uppercase; letter-spacing: 0.06em; pointer-events: none; }
 
-/* piles: deck / extra / graveyard / banished */
+/* piles: deck / extra / graveyard / banished — grey gradient frame (same
+   border-image treatment as the monster/spell zones), with each pile's dashed
+   slot keeping its own accent colour. */
+.dzone--pile {
+  border-image: linear-gradient(135deg, #9aa0a6, #4b4f55) 1;
+  background: linear-gradient(135deg, rgba(154, 160, 166, 0.12), rgba(75, 79, 85, 0.12));
+}
 .dzone--pile .dslot { overflow: hidden; }
-.dslot--deck { border-color: #294a7a; }
-.dslot--extra { border-color: #4a3a6b; }
-.dslot--grave { border-color: #3a3a3a; }
-.dslot--banish { border-color: #6b3030; }
+.dslot--deck { border-color: #6a6f76; }    /* main deck — grey */
+.dslot--grave { border-color: #6a6f76; }   /* graveyard — grey */
+.dslot--extra { border-color: #8a6fc0; }   /* extra deck — purple */
+.dslot--banish { border-color: #c0444a; }  /* banishment — red */
 .dzone--pile .dcard__art { opacity: 0.7; }
 .dslot__count {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -857,7 +892,7 @@ h1 {
 
 .dhand { position: relative; flex-shrink: 0; height: calc(var(--card-h) + 40px); }
 .dhand__empty { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #667; font-size: 12px; }
-.dhand__card {
+.dhand__slot {
   position: absolute; left: 50%; bottom: 4px;
   width: var(--card-w); height: var(--card-h); cursor: default;
   /* Every card pivots around one shared point well below the hand → a clean
@@ -866,9 +901,50 @@ h1 {
   transform: translateX(-50%) rotate(var(--rot, 0deg));
   transition: transform 140ms ease;
 }
-.dhand__card:hover { transform: translateX(-50%) translateY(-22px) rotate(0deg) scale(1.05); z-index: 50; }
-.dhand__card:hover { transform: translateY(-8px); }
+/* The slot is the fixed hit target: it keeps its fan position/rotation and
+   never moves on hover, so the cursor can't slip off the card and make it
+   flicker. Only the inner visual lifts. */
+.dhand__card {
+  width: 100%; height: 100%;
+  transition: transform 140ms ease;
+}
+.dhand__slot:hover { z-index: 50; }
+.dhand__slot:hover .dhand__card { transform: translateY(-20px) scale(1.06); }
 .dhand__card .dcard__art { width: 100%; height: 100%; object-fit: contain; }
+/* Pointer-driven gestures: suppress the browser's native image drag and text
+   selection so a press-drag is read as a gesture, not a selection. */
+.dhand__slot, .dzone--deck[data-deck] { touch-action: none; }
+.dcard__art { -webkit-user-drag: none; user-select: none; }
+
+/* Drag ghost: a card that follows the cursor while dragging from the hand. */
+.ddrag { position: fixed; z-index: 200; pointer-events: none; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.ddrag__card {
+  width: var(--card-w); height: var(--card-h);
+  filter: drop-shadow(0 8px 14px #000a);
+  opacity: 0.92; transform: scale(1.04);
+  outline: 2px solid transparent; border-radius: 6px;
+}
+.ddrag__card.is-valid { outline-color: #5cf; }
+.ddrag__card .dcard__art { width: 100%; height: 100%; object-fit: contain; }
+.ddrag__hint {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  padding: 2px 8px; border-radius: 10px;
+  background: #000b; color: #aab; border: 1px solid #333; white-space: nowrap;
+}
+.ddrag__hint.is-valid { color: #cfefff; border-color: #5cf; }
+
+/* Valid drop zones light up for the local side only (opponent zones carry no
+   data-loc, so they're never matched). */
+.duelboard.is-drag-mon [data-loc="mzone"],
+.duelboard.is-drag-st [data-loc="szone"],
+.duelboard.is-drag-st [data-loc="fzone"] { box-shadow: inset 0 0 0 2px #5cf, 0 0 10px #5cf6; }
+
+/* Long-press-to-surrender ring, centered on the press point over the deck. */
+.dsurrender { position: fixed; z-index: 200; pointer-events: none; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.dsurrender__ring { width: 56px; height: 56px; transform: rotate(-90deg); }
+.dsurrender__track { fill: none; stroke: #0008; stroke-width: 5; }
+.dsurrender__fill { fill: none; stroke: #e0445a; stroke-width: 5; stroke-linecap: round; transition: stroke-dashoffset 80ms linear; }
+.dsurrender__label { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #e0445a; text-shadow: 0 1px 3px #000; }
 
 .duelboard__footer { flex-shrink: 0; display: flex; gap: 12px; height: 150px; }
 
@@ -955,7 +1031,7 @@ h1 {
 }
 
 /* Actionable cards (have a click-to-open action menu this prompt). No glow. */
-.dzone.is-actionable, .dhand__card.is-actionable { cursor: pointer; }
+.dzone.is-actionable, .dhand__slot.is-actionable { cursor: pointer; }
 
 /* Valid placement target zones during SELECT_PLACE (click to place). */
 .dzone.is-target { cursor: pointer; }

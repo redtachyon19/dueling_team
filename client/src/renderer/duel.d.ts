@@ -45,6 +45,7 @@ export interface DuelBridge {
   match: {
     start(opts: DuelStartOptions): Promise<DuelStartResult>;
     respond(r: DuelResponse): Promise<void>;
+    surrender(): Promise<void>;
     end(): Promise<void>;
     onUpdate(cb: (u: DuelUpdate) => void): () => void;
   };

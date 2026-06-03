@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld("duel", {
     start: (opts: unknown) => ipcRenderer.invoke("match:start", opts),
     /** Answer the current prompt. */
     respond: (r: unknown) => ipcRenderer.invoke("match:respond", r),
+    /** Concede the duel (opponent wins). */
+    surrender: () => ipcRenderer.invoke("match:surrender"),
     /** Tear down the active duel. */
     end: () => ipcRenderer.invoke("match:end"),
     /** Subscribe to duel updates (state + prompt + events). Returns an unsubscribe fn. */
