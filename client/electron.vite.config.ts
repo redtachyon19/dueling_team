@@ -7,7 +7,7 @@ export default defineConfig({
     // Externalize node_modules deps, but BUNDLE our workspace @duel/* packages
     // so their raw .ts source is compiled into the main process (Node can't
     // load .ts at runtime).
-    plugins: [externalizeDepsPlugin({ exclude: ["@duel/shared", "@duel/local-backend"] })],
+    plugins: [externalizeDepsPlugin({ exclude: ["@duel/shared", "@duel/local-backend", "@duel/engine"] })],
     build: { outDir: "out/main" },
   },
   preload: {

@@ -37,4 +37,18 @@ contextBridge.exposeInMainWorld("duel", {
     /** A single card's Genesys point history (revisions where it had a cost). */
     history: (id: number) => ipcRenderer.invoke("genesys:history", id),
   },
+  match: {
+    /** Start a duel (ocgcore) from a saved deck; goldfish opponent by default. */
+    start: (opts: unknown) => ipcRenderer.invoke("match:start", opts),
+    /** Answer the current prompt. */
+    respond: (r: unknown) => ipcRenderer.invoke("match:respond", r),
+    /** Tear down the active duel. */
+    end: () => ipcRenderer.invoke("match:end"),
+    /** Subscribe to duel updates (state + prompt + events). Returns an unsubscribe fn. */
+    onUpdate: (cb: (u: unknown) => void) => {
+      const listener = (_e: unknown, u: unknown) => cb(u);
+      ipcRenderer.on("match:update", listener);
+      return () => ipcRenderer.removeListener("match:update", listener);
+    },
+  },
 });

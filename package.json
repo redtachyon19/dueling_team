@@ -16,6 +16,7 @@
     "import:banlists:legacy": "tsx scripts/import-banlists-legacy.ts",
     "import:genesys": "tsx scripts/update-genesys.ts",
     "import:genesys:history": "tsx scripts/import-genesys-history.ts",
+    "import:ocg": "tsx scripts/import-ocg.ts",
     "build:images": "tsx scripts/build-image-pack.ts",
     "build:set-images": "tsx scripts/build-set-images.ts",
     "fill:set": "tsx scripts/fill-set.ts",

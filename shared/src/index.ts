@@ -4,10 +4,12 @@
 // card-data shape. This package has zero runtime dependencies and is the
 // only thing every other package is allowed to depend on.
 //
-// State / Command / socket protocol / AI interface land alongside the first
-// engine milestone. The card-data shape below is published now because the
-// Cards page (and, later, the engine and importers) all need a single
-// canonical definition.
+// The duel contracts (DuelState / DuelEvent / DuelPrompt / DuelResponse) live in
+// ./duel.ts and are re-exported below. ocgcore is the rules authority; see that
+// file. The card-data shape below is the canonical definition used by the Cards
+// page, the importers, and the duel card readers.
+
+export * from "./duel";
 
 // ---------------------------------------------------------------------------
 // Card data

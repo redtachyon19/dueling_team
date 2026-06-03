@@ -12,11 +12,12 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@duel/shared": "workspace:*",
-    "@duel/engine": "workspace:*",
     "@duel/ai": "workspace:*",
-    "@duel/ui": "workspace:*",
+    "@duel/engine": "workspace:*",
     "@duel/local-backend": "workspace:*",
+    "@duel/shared": "workspace:*",
+    "@duel/ui": "workspace:*",
+    "@n1xx1/ocgcore-wasm": "npm:@jsr/n1xx1__ocgcore-wasm@^0.1.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

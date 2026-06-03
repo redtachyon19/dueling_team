@@ -6,7 +6,10 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node", "react", "react-dom"],
     "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@n1xx1/ocgcore-wasm": ["./node_modules/@n1xx1/ocgcore-wasm/dist/index"]
+    }
   },
   "include": ["src", "electron.vite.config.ts"]
 }

@@ -11,6 +11,10 @@ import type {
   GenesysHistory,
   GenesysRevisionMeta,
   GenesysRevision,
+  DuelStartOptions,
+  DuelStartResult,
+  DuelResponse,
+  DuelUpdate,
 } from "@duel/shared";
 
 export interface DuelBridge {
@@ -37,6 +41,12 @@ export interface DuelBridge {
     list(): Promise<GenesysRevisionMeta[]>;
     load(date: string): Promise<GenesysRevision | null>;
     history(id: number): Promise<GenesysHistory>;
+  };
+  match: {
+    start(opts: DuelStartOptions): Promise<DuelStartResult>;
+    respond(r: DuelResponse): Promise<void>;
+    end(): Promise<void>;
+    onUpdate(cb: (u: DuelUpdate) => void): () => void;
   };
 }
 

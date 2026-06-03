@@ -5,6 +5,8 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import type { Deck } from "@duel/shared";
 import { listDecks, loadDeck, saveDeck, deleteDeck } from "@duel/local-backend";
+import { DuelSession } from "./duel/session.ts";
+import type { DuelResponse, DuelStartOptions, DuelStartResult, DuelUpdate } from "@duel/shared";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -64,6 +66,8 @@ function findAssetsDir(): string | null {
   return null;
 }
 
+let mainWindow: BrowserWindow | null = null;
+
 function createWindow(): void {
   const icon = appIcon();
   // macOS shows the icon in the dock rather than the window frame.
@@ -82,6 +86,11 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: false,
     },
+  });
+
+  mainWindow = win;
+  win.on("closed", () => {
+    if (mainWindow === win) mainWindow = null;
   });
 
   // electron-vite injects this env var with the dev server URL.
@@ -234,6 +243,42 @@ ipcMain.handle("genesys:history", async (_e, id: number) => {
     if (delta !== 0) changes.push({ date: seq[i]!.date, delta, points: seq[i]!.points });
   }
   return { current, changes };
+});
+
+// --- IPC: duel (ocgcore session in the main process) ----------------------
+// One active session at a time. Updates (state + prompt + events) are pushed to
+// the renderer over "match:update"; the renderer answers prompts via "match:respond".
+let duelSession: DuelSession | null = null;
+let duelSeed = 0x9e3779b97f4a7c15n;
+
+ipcMain.handle("match:start", async (_e, opts: DuelStartOptions): Promise<DuelStartResult> => {
+  duelSession?.end();
+  duelSession = null;
+
+  const deck = await loadDeck(decksDir(), opts.deckId);
+  if (!deck) return { ok: false, error: "deck not found" };
+
+  const send = (u: DuelUpdate) => mainWindow?.webContents.send("match:update", u);
+  const startDirs = [__dirname, app.getAppPath()];
+  const session = new DuelSession(send, startDirs);
+  duelSession = session;
+
+  duelSeed = (duelSeed * 6364136223846793005n + 1442695040888963407n) & 0xffffffffffffffffn;
+  const res = await session.start({ main: deck.main, extra: deck.extra }, duelSeed, opts.goldfish ?? true);
+  if (!res.ok) {
+    duelSession = null;
+    return { ok: false, error: res.error ?? "failed to start duel", unsupported: res.unsupported };
+  }
+  return { ok: true, unsupported: res.unsupported };
+});
+
+ipcMain.handle("match:respond", (_e, r: DuelResponse) => {
+  duelSession?.respond(r);
+});
+
+ipcMain.handle("match:end", () => {
+  duelSession?.end();
+  duelSession = null;
 });
 
 app.whenReady().then(() => {

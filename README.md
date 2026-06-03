@@ -95,7 +95,29 @@ with HMR for the React UI. There is intentionally **no separate browser/web
 build** — the renderer is Electron-only and lives in one place. Launching
 opens the window with the five primary tabs: Home, Cards, Deck, Duel, Social.
 
+## Duel engine (ygopro-core / ocgcore)
+
+The duel rules engine is **ygopro-core (ocgcore)** — the real EDOPro C++/Lua
+engine — via the prebuilt WASM package `@n1xx1/ocgcore-wasm` (sync mode). It
+runs in the **main process** and is the authoritative source of rules and board
+truth. This intentionally supersedes the "pure dependency-free TS engine"
+principle for the duel itself; the spirit is preserved by keeping `engine/` a
+pure, tested projection layer:
+
+- **`assets/ocg/`** (build-time, `pnpm import:ocg`): the Lua `script/` library
+  (ProjectIgnis CardScripts) + `carddata.json` (decoded from ProjectIgnis
+  BabelCDB). Local-only, like the rest of `assets/`; no network at runtime.
+- **`client/src/main/duel/`**: hosts ocgcore — loads the core, drives the
+  process/message/response loop, queries the board, and translates to the
+  `@duel/shared` contracts (`DuelState` / `DuelEvent` / `DuelPrompt`). Goldfish
+  mode auto-passes the opponent.
+- **`engine/`**: pure `(DuelState, DuelEvent) -> DuelState` reducer + phase/
+  position decoders, unit-tested by `engine/test/vanilla-duel.test.ts`.
+- **`client/src/renderer/pages/Duel*.tsx`**: the board UI, driven entirely by
+  the `window.duel.match` IPC stream.
+
 ## Status
 
-Scaffold only. First milestone is a complete vanilla-monster duel through the
-engine — tracked by `engine/test/vanilla-duel.test.ts`.
+Playable goldfish duel: draw, Normal Summon/Set, position, battle, and
+Spell/Trap set/activate (real Lua effects) run end-to-end through ocgcore.
+Next: AI opponent, multi-format rules, online relay.
