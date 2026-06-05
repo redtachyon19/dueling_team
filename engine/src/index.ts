@@ -76,6 +76,7 @@ export function emptyPlayerState(lp: number): DuelPlayerState {
     spells: [null, null, null, null, null],
     field: null,
     graveCount: 0,
+    graveTop: null,
     banishCount: 0,
     extraCount: 0,
     deckCount: 0,

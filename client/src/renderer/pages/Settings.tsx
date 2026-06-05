@@ -12,6 +12,8 @@ const GESTURES: { keys: string[]; action: string }[] = [
   { keys: ["Drag monster", "→ field"], action: "Normal Summon" },
   { keys: ["Shift", "Drag monster", "→ field"], action: "Set the monster face-down" },
   { keys: ["⌘ / Ctrl", "Drag monster", "→ field"], action: "Special Summon (if applicable)" },
+  { keys: ["Space"], action: "On a response prompt — respond / activate" },
+  { keys: ["Shift"], action: "On a response prompt — No Response / decline" },
 ];
 
 export function Settings(): JSX.Element {

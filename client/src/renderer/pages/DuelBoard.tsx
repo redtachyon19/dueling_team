@@ -151,6 +151,27 @@ export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => vo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prompt?.id]);
 
+  // Keyboard gestures for response popups (chain / activate-effect / yes-no):
+  // Space = respond / activate, Shift = decline ("No Response" / No).
+  useEffect(() => {
+    if (!prompt || (prompt.kind !== "selectChain" && prompt.kind !== "effectyn" && prompt.kind !== "yesno")) return;
+    const noId = prompt.options.find((o) => o.id === "pass" || o.id === "no")?.id;
+    const yesId = prompt.options.find((o) => o.id === "yes" || o.id.startsWith("chain:"))?.id;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if (e.key === "Shift" && noId) {
+        e.preventDefault();
+        respond({ promptId: prompt.id, type: "option", id: noId });
+      } else if ((e.code === "Space" || e.key === " ") && yesId) {
+        e.preventDefault();
+        respond({ promptId: prompt.id, type: "option", id: yesId });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompt?.id]);
+
   const onBoardClick = (e: ReactMouseEvent) => {
     if (suppressClickRef.current) { suppressClickRef.current = false; return; }
     if (!prompt) return;
@@ -360,6 +381,8 @@ export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => vo
         <DuelViewer card={preview} />
 
         <div className="duelboard__play">
+          <Hand cards={opp.hand} nameOf={nameOf} actionable={EMPTY_SET} opponent />
+
           <div className="duelboard__field">
             {banner && <div key={banner.id} className={`dbanner dbanner--${banner.tone}`}>{banner.text}</div>}
             <PlayerSide who="Opponent" p={opp} flip active={state.turnPlayer === 1} nameOf={nameOf} actionable={EMPTY_SET} targets={EMPTY_SET} />
@@ -400,14 +423,14 @@ function PlayerSide({ who, p, flip, active, local = false, actionable, targets, 
       <div className="dzone-spacer" aria-hidden="true" />
       <FieldZone card={p.field} nameOf={nameOf} local={local} actionable={actionable} />
       <ZoneCells kind="mon" cards={p.monsters} nameOf={nameOf} local={local} actionable={actionable} targets={targets} />
-      <Pile kind="grave" label="GY" count={p.graveCount} />
-      <Pile kind="banish" label="Banish" count={p.banishCount} />
+      <Pile kind="grave" label="Graveyard" count={p.graveCount} faceCode={p.graveTop} />
+      <Pile kind="banish" label="Banished Zone" count={p.banishCount} />
     </div>
   );
   const spellRow = (
     <div className={rowCls}>
       <div className="dzone-spacer" aria-hidden="true" />
-      <Pile kind="extra" label="Extra" count={p.extraCount} />
+      <Pile kind="extra" label="Extra Deck" count={p.extraCount} />
       <ZoneCells kind="st" cards={p.spells} nameOf={nameOf} local={local} actionable={actionable} targets={targets} />
       <Pile kind="deck" label="Deck" count={p.deckCount} deckLocal={local} />
       <div className="dzone-spacer" aria-hidden="true" />
@@ -459,15 +482,16 @@ function FieldZone({ card, local, actionable, nameOf }: { card: DuelCard | null;
       data-seq={local ? 0 : undefined}
     >
       <CardSlot card={card} kind="field" />
-      {!card && <span className="dzone__tag">Field</span>}
     </div>
   );
 }
 
 /** A face-down pile (deck / extra / graveyard / banished). Deck & Extra hide
  *  their count; Graveyard & Banished still show theirs. */
-function Pile({ kind, label, count, deckLocal }: { kind: string; label: string; count: number; deckLocal?: boolean }): JSX.Element {
-  const showCount = count > 0 && kind !== "deck" && kind !== "extra";
+function Pile({ kind, label, count, deckLocal, faceCode }: { kind: string; label: string; count: number; deckLocal?: boolean; faceCode?: number | null }): JSX.Element {
+  // The graveyard shows its top card face-up and hides its count; the other
+  // piles show a face-down card back (deck/extra also hide their count).
+  const showCount = count > 0 && kind !== "deck" && kind !== "extra" && kind !== "grave";
   return (
     <div
       className={`dzone dzone--pile dzone--${kind}`}
@@ -475,10 +499,11 @@ function Pile({ kind, label, count, deckLocal }: { kind: string; label: string; 
       data-deck={kind === "deck" && deckLocal ? "local" : undefined}
     >
       <div className={`dslot dslot--${kind}`}>
-        {count > 0 && <img className="dcard__art" src={cardBack} alt={label} />}
+        {faceCode != null
+          ? <CardArt code={faceCode} alt={label} />
+          : count > 0 && <img className="dcard__art" src={cardBack} alt={label} />}
         {showCount && <span className="dslot__count">{count}</span>}
       </div>
-      <span className="dzone__label">{label}</span>
     </div>
   );
 }
@@ -508,15 +533,15 @@ function CardSlot({ card, kind }: { card: DuelCard | null; kind?: string }): JSX
   );
 }
 
-function Hand({ cards, actionable, nameOf }: { cards: DuelCard[]; actionable: Set<string>; nameOf: (c: number | null | undefined) => string }): JSX.Element {
+function Hand({ cards, actionable, nameOf, opponent = false }: { cards: DuelCard[]; actionable: Set<string>; nameOf: (c: number | null | undefined) => string; opponent?: boolean }): JSX.Element {
   const n = cards.length;
   const center = (n - 1) / 2;
   const step = n > 1 ? Math.min(8, 42 / (n - 1)) : 0; // degrees between adjacent cards
   return (
-    <div className="dhand">
+    <div className={`dhand${opponent ? " dhand--opp" : ""}`}>
       {n === 0 && <span className="dhand__empty">— empty hand —</span>}
       {cards.map((c, i) => {
-        const act = actionable.has(`hand:${i}`);
+        const act = !opponent && actionable.has(`hand:${i}`);
         const rot = (i - center) * step;
         return (
           <div
@@ -525,8 +550,9 @@ function Hand({ cards, actionable, nameOf }: { cards: DuelCard[]; actionable: Se
             style={{ "--rot": `${rot}deg` } as CSSProperties}
             title={nameOf(c.code)}
             data-code={c.code ?? undefined}
-            data-loc="hand"
-            data-seq={i}
+            // The opponent hand is view-only: no hand drop/drag target attrs.
+            data-loc={opponent ? undefined : "hand"}
+            data-seq={opponent ? undefined : i}
           >
             <div className="dhand__card">
               <CardArt code={c.code} alt={nameOf(c.code)} />

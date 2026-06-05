@@ -287,6 +287,11 @@ export class DuelSession {
     const field = this.core.duelQueryField(this.handle);
     const players = ([0, 1] as DuelPlayer[]).map((p): DuelPlayerState => {
       const fp = field.players[p];
+      // The graveyard is public — surface the top (most recent) card so it can
+      // be shown face-up. Query returns cards in sequence order; last = newest.
+      const grave = this.queryLoc(p, OcgLocation.GRAVE).filter(Boolean) as Record<string, any>[];
+      const graveTopCard = grave[grave.length - 1];
+      const graveTop: number | null = graveTopCard?.code ?? null;
       return {
         lp: this.lp[p],
         hand: this.queryLoc(p, OcgLocation.HAND).filter(Boolean).map((c, i) => this.toCard(c!, i, p, "hand")),
@@ -294,6 +299,7 @@ export class DuelSession {
         spells: this.zoneArray(p, OcgLocation.SZONE, 5, "szone"),
         field: this.zoneArray(p, OcgLocation.FZONE, 1, "fzone")[0] ?? null,
         graveCount: fp.grave_size,
+        graveTop,
         banishCount: fp.banish_size,
         extraCount: fp.extra_size,
         deckCount: fp.deck_size,
@@ -327,8 +333,10 @@ export class DuelSession {
 
   private toCard(info: Record<string, any>, seq: number, controller: DuelPlayer, loc: string): DuelCard {
     const { position, faceUp } = positionFromOcg(info.position ?? OcgPosition.FACEUP_ATTACK);
-    // Hide the opponent's hidden information from the local viewer.
-    const hidden = controller === 1 && (loc === "hand" || !faceUp);
+    // Hide the opponent's hidden information from the local viewer — but the
+    // hand IS revealed (this is a practice tool, so seeing it is the point);
+    // only their face-down field cards (set monsters / spells) stay concealed.
+    const hidden = controller === 1 && loc !== "hand" && !faceUp;
     return {
       seq,
       code: hidden ? null : info.code ?? null,

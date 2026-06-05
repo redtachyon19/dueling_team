@@ -37,6 +37,8 @@ export interface DuelPlayerState {
   /** The field-spell zone card, or null when empty. */
   field: DuelCard | null;
   graveCount: number;
+  /** Passcode of the top (most recent) graveyard card, shown face-up; null when empty. */
+  graveTop: number | null;
   banishCount: number;
   extraCount: number;
   deckCount: number;

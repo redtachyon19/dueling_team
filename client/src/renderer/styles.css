@@ -844,9 +844,6 @@ h1 {
 /* The field-spell zone is a Spell zone — tint it the Spell teal. */
 .dzone--fieldz { border-color: #16a085; background: rgba(22, 160, 133, 0.12); }
 .dslot--field { border-color: #16a085; }
-.dzone--fieldz .dzone__tag { color: #4fc3a8; }
-
-.dzone__tag { position: absolute; font-size: 9px; color: #5f8f6a; text-transform: uppercase; letter-spacing: 0.06em; pointer-events: none; }
 
 /* piles: deck / extra / graveyard / banished — grey gradient frame (same
    border-image treatment as the monster/spell zones), with each pile's dashed
@@ -861,14 +858,11 @@ h1 {
 .dslot--extra { border-color: #8a6fc0; }   /* extra deck — purple */
 .dslot--banish { border-color: #c0444a; }  /* banishment — red */
 .dzone--pile .dcard__art { opacity: 0.7; }
+.dzone--grave .dcard__art { opacity: 1; } /* face-up graveyard card reads clearly */
 .dslot__count {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   font-size: 16px; font-weight: 800; color: #fff; text-shadow: 0 1px 4px #000, 0 0 6px #000;
   font-variant-numeric: tabular-nums;
-}
-.dzone__label {
-  position: absolute; bottom: 1px; left: 0; right: 0; text-align: center;
-  font-size: 8px; letter-spacing: 0.05em; text-transform: uppercase; color: #8a9a8c;
 }
 
 /* Graveyard cell: Banished sticks out to the right, tucked behind the GY. */
@@ -892,6 +886,16 @@ h1 {
 
 .dhand { position: relative; flex-shrink: 0; height: calc(var(--card-h) + 40px); }
 .dhand__empty { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #667; font-size: 12px; }
+
+/* Opponent's hand: revealed but view-only, shown compact along the top edge. */
+.dhand--opp {
+  --card-h: calc((var(--zone) - 16px) * 0.6);
+  --card-w: calc(var(--card-h) * 0.686);
+  height: calc(var(--card-h) + 12px);
+}
+.dhand--opp .dhand__slot { cursor: default; }
+/* It sits at the top, so the hover lift goes downward (into the board). */
+.dhand--opp .dhand__slot:hover .dhand__card { transform: translateY(10px) scale(1.05); }
 .dhand__slot {
   position: absolute; left: 50%; bottom: 4px;
   width: var(--card-w); height: var(--card-h); cursor: default;
@@ -935,9 +939,11 @@ h1 {
 
 /* Valid drop zones light up for the local side only (opponent zones carry no
    data-loc, so they're never matched). */
-.duelboard.is-drag-mon [data-loc="mzone"],
-.duelboard.is-drag-st [data-loc="szone"],
-.duelboard.is-drag-st [data-loc="fzone"] { box-shadow: inset 0 0 0 2px #5cf, 0 0 10px #5cf6; }
+/* While dragging, highlight the dashed slot outline of valid drop zones (not
+   the square zone frame). */
+.duelboard.is-drag-mon [data-loc="mzone"] .dslot,
+.duelboard.is-drag-st [data-loc="szone"] .dslot,
+.duelboard.is-drag-st [data-loc="fzone"] .dslot { border-color: #5cf; box-shadow: 0 0 8px #5cf8; }
 
 /* Long-press-to-surrender ring, centered on the press point over the deck. */
 .dsurrender { position: fixed; z-index: 200; pointer-events: none; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 4px; }
