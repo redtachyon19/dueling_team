@@ -1,8 +1,8 @@
-import { app, BrowserWindow, ipcMain, nativeImage, protocol } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, protocol } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import type { Deck } from "@duel/shared";
 import { listDecks, loadDeck, saveDeck, deleteDeck } from "@duel/local-backend";
@@ -138,6 +138,50 @@ ipcMain.handle("decks:list", () => listDecks(decksDir()));
 ipcMain.handle("decks:load", (_e, id: string) => loadDeck(decksDir(), id));
 ipcMain.handle("decks:save", (_e, deck: Deck) => saveDeck(decksDir(), deck));
 ipcMain.handle("decks:delete", (_e, id: string) => deleteDeck(decksDir(), id));
+
+// --- IPC: file import/export via native dialogs ----------------------------
+// Used by the deck editor's Import / Export. The renderer builds the file
+// contents (YDK / TXT / JSON text, or base64 PNG bytes); these just pick a
+// path and read/write it. Kept generic rather than deck-specific.
+interface FileFilter {
+  name: string;
+  extensions: string[];
+}
+ipcMain.handle(
+  "io:save",
+  async (
+    _e,
+    opts: { defaultName: string; data: string; encoding?: "utf8" | "base64"; filters?: FileFilter[] },
+  ) => {
+    if (!mainWindow) return { ok: false };
+    const res = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: opts.defaultName,
+      ...(opts.filters ? { filters: opts.filters } : {}),
+    });
+    if (res.canceled || !res.filePath) return { ok: false, canceled: true };
+    try {
+      await writeFile(res.filePath, Buffer.from(opts.data, opts.encoding ?? "utf8"));
+      return { ok: true, path: res.filePath };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  },
+);
+ipcMain.handle("io:open", async (_e, opts?: { filters?: FileFilter[] }) => {
+  if (!mainWindow) return { ok: false };
+  const res = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openFile"],
+    ...(opts?.filters ? { filters: opts.filters } : {}),
+  });
+  const file = res.filePaths[0];
+  if (res.canceled || !file) return { ok: false, canceled: true };
+  try {
+    const text = await readFile(file, "utf8");
+    return { ok: true, name: path.basename(file), text };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+});
 
 // --- IPC: banlists (read-only, from assets/banlists) -----------------
 // list → the index.json revisions array; load → a single dated revision file.
@@ -309,7 +353,12 @@ app.whenReady().then(() => {
       const buf = await readFile(path.join(assets, "cards", "images", `${id}.jpg`));
       return new Response(new Uint8Array(buf), {
         status: 200,
-        headers: { "Content-Type": "image/jpeg" },
+        headers: {
+          "Content-Type": "image/jpeg",
+          // Allow the renderer to draw card art onto a <canvas> and read it
+          // back (deck PNG export) without tainting the canvas.
+          "Access-Control-Allow-Origin": "*",
+        },
       });
     } catch {
       // Art not downloaded yet (run `pnpm build:images`); renderer shows a placeholder.

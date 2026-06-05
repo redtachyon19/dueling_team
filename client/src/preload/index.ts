@@ -23,6 +23,18 @@ contextBridge.exposeInMainWorld("duel", {
     save: (deck: Deck) => ipcRenderer.invoke("decks:save", deck),
     delete: (id: string) => ipcRenderer.invoke("decks:delete", id),
   },
+  io: {
+    /** Pick a path with a native Save dialog and write text or base64 bytes. */
+    save: (opts: {
+      defaultName: string;
+      data: string;
+      encoding?: "utf8" | "base64";
+      filters?: Array<{ name: string; extensions: string[] }>;
+    }) => ipcRenderer.invoke("io:save", opts),
+    /** Pick a file with a native Open dialog and read it back as UTF-8 text. */
+    open: (opts?: { filters?: Array<{ name: string; extensions: string[] }> }) =>
+      ipcRenderer.invoke("io:open", opts),
+  },
   banlists: {
     list: () => ipcRenderer.invoke("banlists:list"),
     load: (date: string) => ipcRenderer.invoke("banlists:load", date),

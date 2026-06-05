@@ -32,6 +32,17 @@ export interface DuelBridge {
     save(deck: Deck): Promise<Deck>;
     delete(id: string): Promise<void>;
   };
+  io: {
+    save(opts: {
+      defaultName: string;
+      data: string;
+      encoding?: "utf8" | "base64";
+      filters?: Array<{ name: string; extensions: string[] }>;
+    }): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
+    open(opts?: {
+      filters?: Array<{ name: string; extensions: string[] }>;
+    }): Promise<{ ok: boolean; canceled?: boolean; name?: string; text?: string; error?: string }>;
+  };
   banlists: {
     list(): Promise<BanlistRevisionMeta[]>;
     load(date: string): Promise<BanlistRevision | null>;

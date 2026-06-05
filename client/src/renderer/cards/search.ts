@@ -5,13 +5,36 @@
 // rules), so it lives in the renderer rather than @duel/engine, and is kept
 // pure so it can be unit-tested without Electron.
 
-import type { CardData, CardQuery, CardSupertype } from "@duel/shared";
+import type { CardData, CardQuery, CardSort, CardSupertype } from "@duel/shared";
 
 /** Broad category of a card, derived from its frame. */
 export function supertypeOf(card: CardData): CardSupertype {
   if (card.frameType === "spell") return "Spell";
   if (card.frameType === "trap") return "Trap";
   return "Monster";
+}
+
+/** Base frame with any "_pendulum" suffix stripped ("effect_pendulum" → "effect"). */
+function baseFrame(frameType: string): string {
+  return frameType.replace(/_pendulum$/, "");
+}
+
+/**
+ * Whether a card's frame matches any selected Frame chip. Base-frame chips
+ * ("effect", "fusion", …) match the plain frame and its Pendulum variant; the
+ * special "pendulum" chip matches any Pendulum card. OR semantics within the set.
+ */
+export function frameMatchesAny(frameType: string, selected: readonly string[]): boolean {
+  const isPendulum = frameType.includes("pendulum");
+  const base = baseFrame(frameType);
+  for (const f of selected) {
+    if (f === "pendulum") {
+      if (isPendulum) return true;
+    } else if (base === f) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Space-joined, lowercased set codes for a card, e.g. "duad-en068 lob-en001". */
@@ -23,9 +46,10 @@ const setCodesOf = (c: CardData): string => c.sets.map((s) => s.code).join(" ").
  *  these.) */
 export function filterCards(cards: readonly CardData[], q: CardQuery): CardData[] {
   const text = q.text?.trim().toLowerCase();
-  const { attribute, race, archetype, frameType, supertype, levelMin, levelMax } = q;
+  const { attribute, race, archetype, frameType, supertype, levelMin, levelMax,
+    atkMin, atkMax, defMin, defMax, supertypes, frames, attributes } = q;
 
-  return cards.filter((c) => {
+  const filtered = cards.filter((c) => {
     if (text) {
       const hit =
         c.name.toLowerCase().includes(text) ||
@@ -39,10 +63,67 @@ export function filterCards(cards: readonly CardData[], q: CardQuery): CardData[
     if (archetype && c.archetype !== archetype) return false;
     if (frameType && c.frameType !== frameType) return false;
     if (supertype && supertypeOf(c) !== supertype) return false;
+    if (supertypes?.length && !supertypes.includes(supertypeOf(c))) return false;
+    if (frames?.length && !frameMatchesAny(c.frameType, frames)) return false;
+    if (attributes?.length && (c.attribute == null || !attributes.includes(c.attribute))) return false;
     if (levelMin != null && (c.level == null || c.level < levelMin)) return false;
     if (levelMax != null && (c.level == null || c.level > levelMax)) return false;
+    if (atkMin != null && (c.atk == null || c.atk < atkMin)) return false;
+    if (atkMax != null && (c.atk == null || c.atk > atkMax)) return false;
+    if (defMin != null && (c.def == null || c.def < defMin)) return false;
+    if (defMax != null && (c.def == null || c.def > defMax)) return false;
     return true;
   });
+
+  // Filter parity with runQuery: when an explicit sort is requested, apply it.
+  return q.sort && q.sort !== "relevance" ? sortCards(filtered, q.sort) : filtered;
+}
+
+/** Push nullish values to the end regardless of direction; else compare by `dir`. */
+function cmpNum(a: number | null, b: number | null, dir: 1 | -1): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return (a - b) * dir;
+}
+function cmpStr(a: string | null, b: string | null, dir: 1 | -1): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return a.localeCompare(b) * dir;
+}
+
+/** Type ordering for the "type" sort: Monsters first, then Spells, then Traps. */
+function typeRank(c: CardData): number {
+  if (c.frameType === "spell") return 1;
+  if (c.frameType === "trap") return 2;
+  return 0;
+}
+
+/** Comparator for an explicit (non-relevance) sort key. */
+function sortComparator(sort: CardSort): (a: CardData, b: CardData) => number {
+  switch (sort) {
+    case "name": return (a, b) => a.name.localeCompare(b.name);
+    case "atk-asc": return (a, b) => cmpNum(a.atk, b.atk, 1);
+    case "atk-desc": return (a, b) => cmpNum(a.atk, b.atk, -1);
+    case "def-asc": return (a, b) => cmpNum(a.def, b.def, 1);
+    case "def-desc": return (a, b) => cmpNum(a.def, b.def, -1);
+    case "level-asc": return (a, b) => cmpNum(a.level, b.level, 1);
+    case "level-desc": return (a, b) => cmpNum(a.level, b.level, -1);
+    case "type": return (a, b) =>
+      typeRank(a) - typeRank(b) || a.frameType.localeCompare(b.frameType) || a.name.localeCompare(b.name);
+    case "newest": return (a, b) => cmpStr(a.tcgDate, b.tcgDate, -1);
+    default: return () => 0; // "relevance" → no reordering
+  }
+}
+
+/** Stable sort a card list by an explicit sort key (original order breaks ties). */
+export function sortCards(cards: readonly CardData[], sort: CardSort): CardData[] {
+  const cmp = sortComparator(sort);
+  return cards
+    .map((card, i) => ({ card, i }))
+    .sort((a, b) => cmp(a.card, b.card) || a.i - b.i)
+    .map((m) => m.card);
 }
 
 /**
@@ -86,7 +167,8 @@ export function prepareCards(cards: readonly CardData[]): PreparedCard[] {
  */
 export function runQuery(prepared: readonly PreparedCard[], q: CardQuery): CardData[] {
   const text = q.text?.trim().toLowerCase();
-  const { attribute, race, archetype, frameType, supertype, levelMin, levelMax } = q;
+  const { attribute, race, archetype, frameType, supertype, levelMin, levelMax,
+    atkMin, atkMax, defMin, defMax, supertypes, frames, attributes, sort } = q;
 
   const matches: Array<{ card: CardData; rank: number }> = [];
 
@@ -108,11 +190,21 @@ export function runQuery(prepared: readonly PreparedCard[], q: CardQuery): CardD
     if (archetype && c.archetype !== archetype) continue;
     if (frameType && c.frameType !== frameType) continue;
     if (supertype && p.supertype !== supertype) continue;
+    if (supertypes?.length && !supertypes.includes(p.supertype)) continue;
+    if (frames?.length && !frameMatchesAny(c.frameType, frames)) continue;
+    if (attributes?.length && (c.attribute == null || !attributes.includes(c.attribute))) continue;
     if (levelMin != null && (c.level == null || c.level < levelMin)) continue;
     if (levelMax != null && (c.level == null || c.level > levelMax)) continue;
+    if (atkMin != null && (c.atk == null || c.atk < atkMin)) continue;
+    if (atkMax != null && (c.atk == null || c.atk > atkMax)) continue;
+    if (defMin != null && (c.def == null || c.def < defMin)) continue;
+    if (defMax != null && (c.def == null || c.def > defMax)) continue;
 
     matches.push({ card: c, rank });
   }
+
+  // An explicit sort overrides relevance ranking, with or without a text query.
+  if (sort && sort !== "relevance") return sortCards(matches.map((m) => m.card), sort);
 
   // No text query → no ranking needed; preserve DB order.
   if (!text) return matches.map((m) => m.card);

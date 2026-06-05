@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CardData, CardQuery, CardSupertype, Deck, DeckSummary } from "@duel/shared";
+import type { CardData, CardQuery, CardSort, CardSupertype, Deck, DeckSummary } from "@duel/shared";
 import { runQuery, prepareCards, deriveFacets, supertypeOf } from "../cards/search.ts";
 import type { PreparedCard } from "../cards/search.ts";
+import { parseYdk, serializeYdk, safeFilename, toDeckListText, toDeckJson } from "../cards/deck-io.ts";
+import { stepIndex, rangeInclusive, type ArrowKey } from "../cards/grid-nav.ts";
 import {
   addCard,
   validateDeck,
@@ -19,8 +21,65 @@ import {
 import type { BanStatus, BanlistRevisionMeta, GenesysRevisionMeta } from "@duel/shared";
 import cardBack from "../../../../assets/cards/sleeves/original_card_sleeve.png";
 
-const SUPERTYPES: CardSupertype[] = ["Monster", "Spell", "Trap"];
 const RESULT_CAP = 120;
+
+/** Sort options in the pool meta bar (matches DM Champion). */
+const SORTS: Array<{ value: CardSort; label: string }> = [
+  { value: "name", label: "Sort: Name" },
+  { value: "atk-desc", label: "Sort: ATK ↓" },
+  { value: "atk-asc", label: "Sort: ATK ↑" },
+  { value: "level-desc", label: "Sort: Level ↓" },
+  { value: "level-asc", label: "Sort: Level ↑" },
+  { value: "type", label: "Sort: Type" },
+  { value: "newest", label: "Sort: Newest" },
+];
+
+/** Multi-select filter chips, matching DM Champion's filter panel. */
+const TYPE_CHIPS: Array<{ value: CardSupertype; label: string }> = [
+  { value: "Monster", label: "Monster" },
+  { value: "Spell", label: "Spell" },
+  { value: "Trap", label: "Trap" },
+];
+const FRAME_CHIPS: Array<{ value: string; label: string }> = [
+  { value: "normal", label: "Normal" },
+  { value: "effect", label: "Effect" },
+  { value: "ritual", label: "Ritual" },
+  { value: "fusion", label: "Fusion" },
+  { value: "synchro", label: "Synchro" },
+  { value: "xyz", label: "Xyz" },
+  { value: "link", label: "Link" },
+  { value: "pendulum", label: "Pendulum" },
+];
+const ATTRIBUTE_CHIPS = ["LIGHT", "DARK", "EARTH", "WATER", "FIRE", "WIND", "DIVINE"];
+const LEVELS = Array.from({ length: 13 }, (_, i) => i + 1); // 1..13 (Level / Rank)
+
+/** Toggle a value in/out of a multi-select array (immutably). */
+function toggleValue<T>(arr: readonly T[], v: T): T[] {
+  return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
+}
+
+type ExportFormat = "ydk" | "txt" | "json" | "png";
+
+/** A selectable grid: one of the deck zones, or the search pool. */
+type GridKey = Zone | "pool";
+
+/** The active multi-selection: tile indices within a single grid. */
+interface Selection {
+  grid: GridKey;
+  anchor: number; // where a shift-range pivots
+  focus: number; // the moving end; the card shown in the viewer
+  indices: number[]; // every selected index within `grid`
+}
+
+const EMPTY_SELECTION: ReadonlySet<number> = new Set();
+const ARROW_KEYS = new Set<string>(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+
+/** Count a grid's rendered columns from its resolved grid-template-columns. */
+function gridColumns(el: Element): number {
+  const tpl = getComputedStyle(el).gridTemplateColumns;
+  if (!tpl || tpl === "none") return 1;
+  return tpl.split(" ").filter(Boolean).length;
+}
 
 /** Which legality system is applied in the editor. */
 type FormatMode = "none" | "tcg" | "genesys";
@@ -136,7 +195,34 @@ function DeckList({ onOpen }: { onOpen: (d: Deck) => void }): JSX.Element {
 function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }): JSX.Element {
   const [deck, setDeck] = useState<Deck>(initial);
   const [dirty, setDirty] = useState(false);
-  const [preview, setPreview] = useState<CardData | null>(null);
+  const [preview, setPreview] = useState<CardData | null>(null); // transiently hovered card
+  const [pinned, setPinned] = useState<CardData | null>(null); // focused card shown in the viewer
+  const [sel, setSel] = useState<Selection | null>(null); // multi-select (click + Shift+Arrow)
+  const [flash, setFlash] = useState("");
+
+  // The viewer shows the focused (pinned) card if any, otherwise the hovered one.
+  const shown = pinned ?? preview;
+
+  // The selected index set for a grid — empty unless it's the active selection grid.
+  const selectedFor = (grid: GridKey): ReadonlySet<number> =>
+    sel && sel.grid === grid ? new Set(sel.indices) : EMPTY_SELECTION;
+
+  // Click a card to select + pin it. Shift+click extends the range from the
+  // anchor; a plain click on the sole selected card clears the selection.
+  const selectCard = (grid: GridKey, index: number, card: CardData, e: React.MouseEvent) => {
+    if (e.shiftKey && sel && sel.grid === grid) {
+      setPinned(card);
+      setSel({ grid, anchor: sel.anchor, focus: index, indices: rangeInclusive(sel.anchor, index) });
+      return;
+    }
+    if (sel && sel.grid === grid && sel.indices.length === 1 && sel.focus === index) {
+      setPinned(null);
+      setSel(null);
+      return;
+    }
+    setPinned(card);
+    setSel({ grid, anchor: index, focus: index, indices: [index] });
+  };
 
   const [cards, setCards] = useState<CardData[] | null>(null);
   const byId = useMemo(() => {
@@ -208,25 +294,237 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
     onExit();
   };
 
+  // Transient status line in the editor bar (export/import feedback).
+  const flashMsg = (msg: string) => {
+    setFlash(msg);
+    if (msg) window.setTimeout(() => setFlash((cur) => (cur === msg ? "" : cur)), 2600);
+  };
+
+  const nameOf = (id: number): string => byId.get(id)?.name ?? `#${id}`;
+  const YDK_FILTERS = [{ name: "YDK Deck", extensions: ["ydk"] }];
+
+  // Import a .ydk into the open deck (replaces zones; names the deck after the
+  // file). Limits aren't enforced on import — an over-cap import just warns.
+  const doImport = async () => {
+    if (!window.duel?.io) return;
+    const res = await window.duel.io.open({ filters: YDK_FILTERS });
+    if (!res.ok || res.text == null) {
+      if (!res.canceled) flashMsg("Import failed");
+      return;
+    }
+    const zones = parseYdk(res.text);
+    const base = (res.name ?? "").replace(/\.ydk$/i, "").trim();
+    mutate({
+      ...deck,
+      main: zones.main,
+      extra: zones.extra,
+      side: zones.side,
+      ...(base ? { name: base } : {}),
+    });
+    flashMsg(`Imported ${zones.main.length}+${zones.extra.length}+${zones.side.length}`);
+  };
+
+  // Export the deck to a chosen format via a native Save dialog.
+  const exportDeck = async (fmt: ExportFormat) => {
+    if (!window.duel?.io) return;
+    const base = safeFilename(deck.name);
+    try {
+      let data: string;
+      let encoding: "utf8" | "base64" = "utf8";
+      let filter: { name: string; extensions: string[] };
+      if (fmt === "ydk") {
+        data = serializeYdk(deck);
+        filter = { name: "YDK Deck", extensions: ["ydk"] };
+      } else if (fmt === "txt") {
+        data = toDeckListText(deck, nameOf);
+        filter = { name: "Text", extensions: ["txt"] };
+      } else if (fmt === "json") {
+        data = toDeckJson(deck, (id) => byId.get(id), nowIso());
+        filter = { name: "JSON", extensions: ["json"] };
+      } else {
+        flashMsg("Rendering image…");
+        const dataUrl = await renderDeckPng(deck, byId);
+        data = dataUrl.split(",")[1] ?? "";
+        encoding = "base64";
+        filter = { name: "PNG Image", extensions: ["png"] };
+      }
+      const res = await window.duel.io.save({
+        defaultName: `${base}.${fmt}`,
+        data,
+        encoding,
+        filters: [filter],
+      });
+      if (res.ok) flashMsg(`Exported ${base}.${fmt}`);
+      else if (res.canceled) flashMsg("");
+      else flashMsg("Export failed");
+    } catch (err) {
+      flashMsg("Export failed");
+      console.error("[deck export]", err);
+    }
+  };
+
   const add = (card: CardData, zone: Zone) => {
     const r = addCard(deck, card, zone);
     if (r.ok) mutate(r.deck);
   };
+
+  // Fold-add several cards to a zone (auto-routed) in one mutation.
+  const addManyTo = (cards: CardData[], zone: Zone) => {
+    let d = deck;
+    for (const c of cards) {
+      const r = addCard(d, c, zone);
+      if (r.ok) d = r.deck;
+    }
+    if (d !== deck) mutate(d);
+  };
+
+  // Drag bookkeeping: the source grid + the cards being dragged — the whole
+  // selection when the grabbed tile is part of it, otherwise just that card —
+  // plus the source indices (deck zones only). A deck drag dropped on a zone
+  // moves the cards; dropped anywhere else it removes them. A pool drag dropped
+  // on a zone adds the cards. Clicking never removes.
+  const dragRef = useRef<{ from: GridKey; indices: number[]; cards: CardData[] } | null>(null);
+  // Set once a drop is handled (by a zone or the outside-the-deck area) so the
+  // dragend fallback doesn't act twice.
+  const droppedHandledRef = useRef(false);
+
+  // Begin dragging cards already in the deck (carries the selection if the
+  // grabbed card is part of it).
+  const pickUp = (zone: Zone, index: number, id: number, e: React.DragEvent) => {
+    e.dataTransfer.setData("text/card-id", String(id));
+    e.dataTransfer.effectAllowed = "move";
+    const inSel = !!sel && sel.grid === zone && sel.indices.includes(index);
+    const indices = inSel ? [...sel.indices].sort((a, b) => a - b) : [index];
+    const cards = indices.map((i) => byId.get(deck[zone][i]!)).filter((c): c is CardData => !!c);
+    dragRef.current = { from: zone, indices, cards };
+    droppedHandledRef.current = false;
+  };
+
+  // Begin dragging from the search pool (SearchPanel resolves the cards).
+  const beginPoolDrag = (cards: CardData[]) => {
+    dragRef.current = { from: "pool", indices: [], cards };
+    droppedHandledRef.current = false;
+  };
+
+  // Remove every card the active deck drag is carrying.
+  const removeDragged = () => {
+    const d = dragRef.current;
+    if (!d || d.from === "pool") return;
+    const gone = new Set(d.indices);
+    mutate({ ...deck, [d.from]: deck[d.from].filter((_, i) => !gone.has(i)) });
+  };
+
+  // Drop on the area outside the zones → remove the dragged deck cards. Because
+  // this is a real drop target the release is accepted immediately, so the cards
+  // are removed instantly with no native snap-back delay.
+  const dropOutside = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!dragRef.current || dragRef.current.from === "pool") return; // pool drag outside → no-op
+    droppedHandledRef.current = true;
+    removeDragged();
+  };
+
+  // End of a drag: clean up; if a deck drag wasn't handled (released off-window),
+  // remove its cards as a fallback. Clear the now-stale selection either way.
+  const endDrag = () => {
+    if (!droppedHandledRef.current) removeDragged();
+    dragRef.current = null;
+    droppedHandledRef.current = false;
+    setSel(null);
+  };
+
+  // Drop onto a zone: a pool drag ADDS its cards; a deck drag MOVES them. The
+  // move is per-card (atomic remove+add) so a full target never drops a card.
+  // stopPropagation keeps the drop from also triggering the outside-removal.
   const drop = (zone: Zone, e: React.DragEvent) => {
     e.preventDefault();
-    const id = Number(e.dataTransfer.getData("text/card-id"));
-    const card = byId.get(id);
-    if (card) add(card, zone);
+    e.stopPropagation();
+    droppedHandledRef.current = true;
+    const payload = dragRef.current;
+    if (!payload) {
+      const id = Number(e.dataTransfer.getData("text/card-id"));
+      const card = byId.get(id);
+      if (card) add(card, zone);
+      return;
+    }
+    if (payload.from === "pool") {
+      addManyTo(payload.cards, zone);
+      return;
+    }
+    let d = deck;
+    for (const c of payload.cards) {
+      const at = d[payload.from].indexOf(c.id);
+      if (at < 0) continue;
+      const afterRemove: Deck = { ...d, [payload.from]: d[payload.from].filter((_, i) => i !== at) };
+      const r = addCard(afterRemove, c, zone);
+      if (r.ok) d = r.deck; // target full / copy-capped → this card stays put
+    }
+    if (d !== deck) mutate(d);
   };
-  // Remove the specific copy at `index` in a zone (duplicates shown separately).
-  const removeAt = (zone: Zone, index: number) => {
-    mutate({ ...deck, [zone]: deck[zone].filter((_, i) => i !== index) });
-  };
+
+  // Keyboard: arrows move the focus through the active grid, Shift+arrow extends
+  // the selection (range from the anchor), Delete removes the selected deck
+  // cards, Enter adds the selected pool cards, Escape clears. All ignored while
+  // typing in a field so text editing and dropdowns keep their keys.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT" || ae.isContentEditable)) {
+        return;
+      }
+
+      if (ARROW_KEYS.has(e.key)) {
+        if (!sel) return;
+        const gridEl = document.querySelector(`[data-grid="${sel.grid}"]`);
+        if (!gridEl || gridEl.children.length === 0) return;
+        e.preventDefault();
+        const next = stepIndex(sel.focus, e.key as ArrowKey, gridColumns(gridEl), gridEl.children.length);
+        const tile = gridEl.children[next] as HTMLElement | undefined;
+        setPinned(tile ? byId.get(Number(tile.dataset.cardId)) ?? null : null);
+        if (e.shiftKey) setSel({ grid: sel.grid, anchor: sel.anchor, focus: next, indices: rangeInclusive(sel.anchor, next) });
+        else setSel({ grid: sel.grid, anchor: next, focus: next, indices: [next] });
+        return;
+      }
+
+      if (e.key === "Escape") {
+        if (sel) { setSel(null); setPinned(null); }
+        return;
+      }
+
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (!sel || sel.grid === "pool") return;
+        e.preventDefault();
+        const drop = new Set(sel.indices);
+        mutate({ ...deck, [sel.grid]: deck[sel.grid].filter((_, i) => !drop.has(i)) });
+        setSel(null);
+        setPinned(null);
+        return;
+      }
+
+      if (e.key === "Enter") {
+        if (!sel || sel.grid !== "pool") return;
+        const gridEl = document.querySelector('[data-grid="pool"]');
+        if (!gridEl) return;
+        e.preventDefault();
+        const cards: CardData[] = [];
+        for (const i of sel.indices) {
+          const tile = gridEl.children[i] as HTMLElement | undefined;
+          const c = tile ? byId.get(Number(tile.dataset.cardId)) : undefined;
+          if (c) cards.push(c);
+        }
+        addManyTo(cards, "main");
+        setSel(null);
+        setPinned(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [deck, sel, byId]);
 
   const issues = useMemo(() => (deck.enforceLimits ? validateDeck(deck) : []), [deck]);
 
   return (
-    <div className="editor">
+    <div className="editor" onDragOver={(e) => e.preventDefault()} onDrop={dropOutside}>
       <div className="editor__bar">
         <button className="btn" onClick={tryExit}>← Decks</button>
         <input
@@ -258,6 +556,9 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
               : "• " + issues[0]!.message}
           </span>
         )}
+        {flash && <span className="editor__flash">{flash}</span>}
+        <button className="btn" onClick={doImport} title="Import a .ydk deck">Import</button>
+        <ExportMenu onExport={exportDeck} />
         <button className="btn btn--primary" onClick={save} disabled={!dirty}>
           {dirty ? "Save" : "Saved"}
         </button>
@@ -265,32 +566,38 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
 
       <div className="editor__body">
         <DeckViewerPanel
-          card={preview} mode={mode}
-          status={preview ? statusOf(preview) : null}
-          cost={preview ? costOf(preview) : 0}
+          card={shown} mode={mode} isPinned={pinned != null}
+          selectedCount={sel?.indices.length ?? 0}
+          status={shown ? statusOf(shown) : null}
+          cost={shown ? costOf(shown) : 0}
         />
 
-        <div className="editor__zones">
+        <div className="editor__zones" onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.stopPropagation()}>
           <DeckZone
             label="Main" zone="main" deck={deck} byId={byId} rows={4} mode={mode} statusOf={statusOf} costOf={costOf}
             limit={deck.enforceLimits ? `${deck.main.length} / ${LIMITS.mainMin}–${LIMITS.mainMax}` : `${deck.main.length}`}
-            onHover={setPreview} onDrop={(e) => drop("main", e)} onRemoveAt={(i) => removeAt("main", i)}
+            onHover={setPreview} onSelect={selectCard} selected={selectedFor("main")} onDrop={(e) => drop("main", e)} onPickUp={pickUp} onTileDragEnd={endDrag}
           />
           <DeckZone
             label="Extra" zone="extra" deck={deck} byId={byId} rows={1} mode={mode} statusOf={statusOf} costOf={costOf}
             limit={deck.enforceLimits ? `${deck.extra.length} / ${LIMITS.extraMax}` : `${deck.extra.length}`}
-            onHover={setPreview} onDrop={(e) => drop("extra", e)} onRemoveAt={(i) => removeAt("extra", i)}
+            onHover={setPreview} onSelect={selectCard} selected={selectedFor("extra")} onDrop={(e) => drop("extra", e)} onPickUp={pickUp} onTileDragEnd={endDrag}
           />
           <DeckZone
             label="Side" zone="side" deck={deck} byId={byId} rows={1} mode={mode} statusOf={statusOf} costOf={costOf}
             limit={deck.enforceLimits ? `${deck.side.length} / ${LIMITS.sideMax}` : `${deck.side.length}`}
-            onHover={setPreview} onDrop={(e) => drop("side", e)} onRemoveAt={(i) => removeAt("side", i)}
+            onHover={setPreview} onSelect={selectCard} selected={selectedFor("side")} onDrop={(e) => drop("side", e)} onPickUp={pickUp} onTileDragEnd={endDrag}
           />
         </div>
 
         <SearchPanel
           cards={cards}
           onHover={setPreview}
+          onSelect={selectCard}
+          selected={selectedFor("pool")}
+          onResultsChange={() => setSel((s) => (s?.grid === "pool" ? null : s))}
+          onDragStart={(dragged) => beginPoolDrag(dragged)}
+          onTileDragEnd={endDrag}
           onAdd={(card) => add(card, "main")}
           copiesOf={(id) => copiesOf(deck, id)}
           mode={mode}
@@ -329,6 +636,51 @@ function TagEditor({ tags, onChange }: { tags: string[]; onChange: (t: string[])
   );
 }
 
+/** Export dropdown: pick a format, fire onExport. Closes on outside click. */
+function ExportMenu({ onExport }: { onExport: (fmt: ExportFormat) => void }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const pick = (fmt: ExportFormat) => {
+    setOpen(false);
+    onExport(fmt);
+  };
+
+  const items: Array<{ fmt: ExportFormat; ext: string; hint: string }> = [
+    { fmt: "ydk", ext: ".ydk", hint: "EDOPro / YGOPro" },
+    { fmt: "txt", ext: ".txt", hint: "Readable list" },
+    { fmt: "json", ext: ".json", hint: "Structured data" },
+    { fmt: "png", ext: ".png", hint: "Deck image" },
+  ];
+
+  return (
+    <div className="exportmenu" ref={ref}>
+      <button type="button" className="btn" onClick={() => setOpen((o) => !o)}>
+        Export ▾
+      </button>
+      {open && (
+        <div className="exportmenu__menu">
+          {items.map((it) => (
+            <button key={it.fmt} type="button" className="exportmenu__item" onClick={() => pick(it.fmt)}>
+              <span className="exportmenu__ext">{it.ext}</span>
+              <span className="exportmenu__hint">{it.hint}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Short label + class suffix for a ban status. */
 function statusBadge(status: BanStatus): { label: string; cls: string } | null {
   switch (status) {
@@ -340,7 +692,7 @@ function statusBadge(status: BanStatus): { label: string; cls: string } | null {
   }
 }
 
-function DeckViewerPanel({ card, mode, status, cost }: { card: CardData | null; mode: FormatMode; status: BanStatus | null; cost: number }): JSX.Element {
+function DeckViewerPanel({ card, mode, status, cost, isPinned, selectedCount }: { card: CardData | null; mode: FormatMode; status: BanStatus | null; cost: number; isPinned: boolean; selectedCount: number }): JSX.Element {
   if (!card) {
     return (
       <aside className="editor__viewer">
@@ -355,7 +707,14 @@ function DeckViewerPanel({ card, mode, status, cost }: { card: CardData | null; 
   const badge = status ? statusBadge(status) : null;
   return (
     <aside className="editor__viewer">
-      <Art id={card.images[0] ?? card.id} name={card.name} cls="cards__viewer-art" />
+      <div className="editor__viewer-art">
+        <Art id={card.images[0] ?? card.id} name={card.name} cls="cards__viewer-art" />
+        {isPinned && (
+          <span className="viewer__pin" title="Shift+Arrow to select more; click again to unpin">
+            {selectedCount > 1 ? `📌 ${selectedCount} selected` : "📌 Pinned"}
+          </span>
+        )}
+      </div>
       <div className="cards__viewer-info">
         <div className="cards__viewer-name">{card.name}</div>
         {mode === "tcg" && (
@@ -399,10 +758,15 @@ function MiniOverlay({ mode, status, cost }: { mode: FormatMode; status: BanStat
 }
 
 function DeckZone({
-  label, zone, deck, byId, rows, limit, onHover, onDrop, onRemoveAt, mode, statusOf, costOf,
+  label, zone, deck, byId, rows, limit, onHover, onSelect, selected, onDrop, onPickUp, onTileDragEnd, mode, statusOf, costOf,
 }: {
   label: string; zone: Zone; deck: Deck; byId: Map<number, CardData>; rows: number; limit: string;
-  onHover: (c: CardData) => void; onDrop: (e: React.DragEvent) => void; onRemoveAt: (index: number) => void;
+  onHover: (c: CardData) => void;
+  onSelect: (grid: GridKey, index: number, card: CardData, e: React.MouseEvent) => void;
+  selected: ReadonlySet<number>;
+  onDrop: (e: React.DragEvent) => void;
+  onPickUp: (zone: Zone, index: number, id: number, e: React.DragEvent) => void;
+  onTileDragEnd: () => void;
   mode: FormatMode; statusOf: (c: CardData) => BanStatus; costOf: (c: CardData) => number;
 }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -429,6 +793,7 @@ function DeckZone({
       <div
         className="zone__grid"
         ref={ref}
+        data-grid={zone}
         style={{
           gridTemplateColumns: `repeat(${cols}, ${Math.max(1, Math.round(step))}px)`,
           gridAutoRows: `${Math.round(ch)}px`,
@@ -441,13 +806,15 @@ function DeckZone({
           return (
             <div
               key={`${id}-${index}`}
-              className="mini mini--zone"
+              className={`mini mini--zone${selected.has(index) ? " mini--pinned" : ""}`}
               style={{ width: `${Math.round(cw)}px`, height: `${Math.round(ch)}px` }}
-              title={card?.name ?? String(id)}
+              data-card-id={id}
+              title={`${card?.name ?? String(id)} — click to pin, Shift+Arrow to select more (Delete removes), drag out to remove`}
               draggable
-              onDragStart={(e) => e.dataTransfer.setData("text/card-id", String(id))}
+              onDragStart={(e) => onPickUp(zone, index, id, e)}
+              onDragEnd={onTileDragEnd}
               onMouseEnter={() => card && onHover(card)}
-              onClick={() => onRemoveAt(index)}
+              onClick={(e) => card && onSelect(zone, index, card, e)}
             >
               <Art id={card?.images[0] ?? id} name={card?.name ?? ""} cls="mini__art" />
               {card && <MiniOverlay mode={mode} status={statusOf(card)} cost={costOf(card)} />}
@@ -460,10 +827,15 @@ function DeckZone({
 }
 
 function SearchPanel({
-  cards, onHover, onAdd, copiesOf: copies, mode, statusOf, costOf,
+  cards, onHover, onSelect, selected, onResultsChange, onDragStart, onTileDragEnd, onAdd, copiesOf: copies, mode, statusOf, costOf,
 }: {
   cards: CardData[] | null;
   onHover: (c: CardData) => void;
+  onSelect: (grid: GridKey, index: number, card: CardData, e: React.MouseEvent) => void;
+  selected: ReadonlySet<number>;
+  onResultsChange: () => void;
+  onDragStart: (cards: CardData[], e: React.DragEvent) => void;
+  onTileDragEnd: () => void;
   onAdd: (c: CardData) => void;
   copiesOf: (id: number) => number;
   mode: FormatMode;
@@ -472,8 +844,19 @@ function SearchPanel({
 }): JSX.Element {
   const [text, setText] = useState("");
   const [debounced, setDebounced] = useState("");
-  const [supertype, setSupertype] = useState("");
-  const [attribute, setAttribute] = useState("");
+  const [classes, setClasses] = useState<CardSupertype[]>([]);
+  const [frames, setFrames] = useState<string[]>([]);
+  const [attributes, setAttributes] = useState<string[]>([]);
+  const [levelMin, setLevelMin] = useState("");
+  const [levelMax, setLevelMax] = useState("");
+  const [atkMin, setAtkMin] = useState("");
+  const [atkMax, setAtkMax] = useState("");
+  const [defMin, setDefMin] = useState("");
+  const [defMax, setDefMax] = useState("");
+  const [race, setRace] = useState("");
+  const [archetype, setArchetype] = useState("");
+  const [sort, setSort] = useState<CardSort>("name");
+  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(text), 150);
@@ -484,45 +867,209 @@ function SearchPanel({
   const facets = useMemo(() => (cards ? deriveFacets(cards) : null), [cards]);
 
   const query: CardQuery = useMemo(() => {
-    const q: CardQuery = {};
+    const q: CardQuery = { sort };
     if (debounced) q.text = debounced;
-    if (supertype) q.supertype = supertype as CardSupertype;
-    if (attribute) q.attribute = attribute;
+    if (classes.length) q.supertypes = classes;
+    if (frames.length) q.frames = frames;
+    if (attributes.length) q.attributes = attributes;
+    if (race) q.race = race;
+    if (archetype) q.archetype = archetype;
+    if (levelMin) q.levelMin = Number(levelMin);
+    if (levelMax) q.levelMax = Number(levelMax);
+    if (atkMin !== "") q.atkMin = Number(atkMin);
+    if (atkMax !== "") q.atkMax = Number(atkMax);
+    if (defMin !== "") q.defMin = Number(defMin);
+    if (defMax !== "") q.defMax = Number(defMax);
     return q;
-  }, [debounced, supertype, attribute]);
+  }, [debounced, classes, frames, attributes, race, archetype, levelMin, levelMax, atkMin, atkMax, defMin, defMax, sort]);
 
   const results = useMemo(() => (prepared ? runQuery(prepared, query) : []), [prepared, query]);
 
+  // The result order/contents changed → drop any pool selection so its indices
+  // can't point at the wrong cards.
+  useEffect(() => { onResultsChange(); }, [results]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Active-filter count shown on the filter badge (text and sort excluded, as in DM Champion).
+  const filterCount =
+    classes.length + frames.length + attributes.length +
+    (levelMin ? 1 : 0) + (levelMax ? 1 : 0) +
+    (atkMin !== "" ? 1 : 0) + (atkMax !== "" ? 1 : 0) +
+    (defMin !== "" ? 1 : 0) + (defMax !== "" ? 1 : 0) +
+    (race ? 1 : 0) + (archetype ? 1 : 0);
+
+  const clearAll = () => {
+    setText("");
+    setClasses([]);
+    setFrames([]);
+    setAttributes([]);
+    setLevelMin("");
+    setLevelMax("");
+    setAtkMin("");
+    setAtkMax("");
+    setDefMin("");
+    setDefMax("");
+    setRace("");
+    setArchetype("");
+    setSort("name");
+  };
+
+  // Drag from the pool: carry the whole selection if the grabbed tile is part
+  // of it, else just this card. The deck zones (parent) handle the drop.
+  const startPoolDrag = (index: number, card: CardData, e: React.DragEvent) => {
+    e.dataTransfer.setData("text/card-id", String(card.id));
+    e.dataTransfer.effectAllowed = "copy";
+    const dragged = selected.has(index)
+      ? [...selected].sort((a, b) => a - b).map((i) => results[i]).filter((c): c is CardData => !!c)
+      : [card];
+    onDragStart(dragged, e);
+  };
+
   return (
     <div className="searchpanel">
-      <div className="searchpanel__filters">
+      <div className="searchpanel__bar">
         <input
-          className="cards__input"
-          placeholder="Search name & text…"
+          className="cards__input searchpanel__search"
+          placeholder="Search cards…"
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
-        <div className="searchpanel__row">
-          <select className="cards__input" value={supertype} onChange={(e) => setSupertype(e.target.value)}>
-            <option value="">Any type</option>
-            {SUPERTYPES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select className="cards__input" value={attribute} onChange={(e) => setAttribute(e.target.value)}>
-            <option value="">Any attr</option>
-            {facets?.attributes.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </div>
-        <div className="searchpanel__meta">{results.length.toLocaleString()} results — drag or double-click to add</div>
+        <button
+          type="button"
+          className={`filtoggle${showFilters ? " filtoggle--on" : ""}`}
+          title="Filters"
+          aria-expanded={showFilters}
+          onClick={() => setShowFilters((v) => !v)}
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M3 5h18v2.59L14.41 14v6.41L9.59 18v-3.41L3 8V5z" />
+          </svg>
+          {filterCount > 0 && <span className="filtoggle__badge">{filterCount}</span>}
+        </button>
       </div>
-      <div className="searchpanel__grid">
-        {results.slice(0, RESULT_CAP).map((c) => (
+
+      {showFilters && (
+        <div className="filterpanel">
+          <div className="fp-group">
+            <div className="fp-label">Card Type</div>
+            <div className="chipgrid chipgrid--3">
+              {TYPE_CHIPS.map((t) => (
+                <button
+                  key={t.value}
+                  type="button"
+                  className={`chip${classes.includes(t.value) ? " chip--on" : ""}`}
+                  onClick={() => setClasses((c) => toggleValue(c, t.value))}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="fp-group">
+            <div className="fp-label">Frame</div>
+            <div className="chipgrid">
+              {FRAME_CHIPS.map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  className={`chip${frames.includes(f.value) ? " chip--on" : ""}`}
+                  onClick={() => setFrames((s) => toggleValue(s, f.value))}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="fp-group">
+            <div className="fp-label">Attribute</div>
+            <div className="chipgrid">
+              {ATTRIBUTE_CHIPS.map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  className={`chip${attributes.includes(a) ? " chip--on" : ""}`}
+                  onClick={() => setAttributes((s) => toggleValue(s, a))}
+                >
+                  {a}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="fp-group">
+            <div className="fp-label">Level / Rank</div>
+            <div className="fp-row fp-row--2">
+              <select className="cards__input" value={levelMin} onChange={(e) => setLevelMin(e.target.value)}>
+                <option value="">Min</option>
+                {LEVELS.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <select className="cards__input" value={levelMax} onChange={(e) => setLevelMax(e.target.value)}>
+                <option value="">Max</option>
+                {LEVELS.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="fp-group">
+            <div className="fp-label">ATK</div>
+            <div className="fp-row fp-row--2">
+              <input className="cards__input" type="number" min={0} placeholder="Min" value={atkMin} onChange={(e) => setAtkMin(e.target.value)} />
+              <input className="cards__input" type="number" min={0} placeholder="Max" value={atkMax} onChange={(e) => setAtkMax(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="fp-group">
+            <div className="fp-label">DEF</div>
+            <div className="fp-row fp-row--2">
+              <input className="cards__input" type="number" min={0} placeholder="Min" value={defMin} onChange={(e) => setDefMin(e.target.value)} />
+              <input className="cards__input" type="number" min={0} placeholder="Max" value={defMax} onChange={(e) => setDefMax(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="fp-group">
+            <div className="fp-label">Monster Type</div>
+            <select className="cards__input" value={race} onChange={(e) => setRace(e.target.value)}>
+              <option value="">Any</option>
+              {facets?.races.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+
+          <div className="fp-group">
+            <div className="fp-label">Archetype</div>
+            <select className="cards__input" value={archetype} onChange={(e) => setArchetype(e.target.value)}>
+              <option value="">Any</option>
+              {facets?.archetypes.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+
+          <button type="button" className="clearbtn" onClick={clearAll}>Clear all</button>
+        </div>
+      )}
+
+      <div className="poolmeta">
+        <span>{results.length.toLocaleString()} cards</span>
+        <select
+          className="cards__input poolmeta__sort"
+          value={sort}
+          onChange={(e) => setSort(e.target.value as CardSort)}
+        >
+          {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+        </select>
+      </div>
+
+      <div className="searchpanel__grid" data-grid="pool">
+        {results.slice(0, RESULT_CAP).map((c, index) => (
           <div
             key={c.id}
-            className="mini"
-            title={`${c.name}${copies(c.id) ? ` (in deck ×${copies(c.id)})` : ""}`}
+            className={`mini${selected.has(index) ? " mini--pinned" : ""}`}
+            data-card-id={c.id}
+            title={`${c.name}${copies(c.id) ? ` (in deck ×${copies(c.id)})` : ""} — click to pin, Shift+Arrow to select more (Enter or drag adds), double-click to add`}
             draggable
-            onDragStart={(e) => e.dataTransfer.setData("text/card-id", String(c.id))}
+            onDragStart={(e) => startPoolDrag(index, c, e)}
+            onDragEnd={onTileDragEnd}
             onMouseEnter={() => onHover(c)}
+            onClick={(e) => onSelect("pool", index, c, e)}
             onDoubleClick={() => onAdd(c)}
           >
             <Art id={c.images[0] ?? c.id} name={c.name} cls="mini__art" />
@@ -650,6 +1197,136 @@ function FormatGroup({
       {recent.map(itemRow)}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Deck PNG export: render the three zones to a canvas of card art and return a
+// PNG data URL. Card art is served by the card:// protocol, which sends
+// `Access-Control-Allow-Origin: *` so a crossOrigin image draws without
+// tainting the canvas; unavailable art falls back to the wrapped card name.
+// ---------------------------------------------------------------------------
+function loadImageEl(src: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+function drawCardName(
+  ctx: CanvasRenderingContext2D,
+  card: CardData | undefined,
+  x: number,
+  ty: number,
+  tileW: number,
+): void {
+  ctx.fillStyle = "#8a8a8a";
+  ctx.font = "20px sans-serif";
+  const words = (card?.name ?? "").split(/\s+/);
+  const maxLineW = tileW - 20;
+  let line = "";
+  let yy = ty + 14;
+  for (const w of words) {
+    const test = line ? `${line} ${w}` : w;
+    if (ctx.measureText(test).width > maxLineW && line) {
+      ctx.fillText(line, x + 10, yy);
+      yy += 24;
+      line = w;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x + 10, yy);
+}
+
+async function renderDeckPng(deck: Deck, byId: Map<number, CardData>): Promise<string> {
+  const TILE_W = 280;
+  const TILE_H = Math.round(TILE_W * CARD_RATIO);
+  const COLS = 10;
+  const GAP = 12;
+  const PAD = 48;
+  const TITLE_H = 84;
+  const SECTION_H = 52;
+  const SECTION_GAP = 32;
+
+  const sections = [
+    { title: "Main Deck", ids: deck.main },
+    { title: "Extra Deck", ids: deck.extra },
+    { title: "Side Deck", ids: deck.side },
+  ].filter((s) => s.ids.length > 0);
+
+  const canvasW = PAD * 2 + COLS * TILE_W + (COLS - 1) * GAP;
+  let canvasH = PAD + TITLE_H;
+  for (const s of sections) {
+    const rows = Math.ceil(s.ids.length / COLS);
+    canvasH += SECTION_H + rows * TILE_H + (rows - 1) * GAP + SECTION_GAP;
+  }
+  canvasH += PAD;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = canvasW;
+  canvas.height = Math.max(canvasH, PAD * 2 + TITLE_H + 40);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2D canvas context unavailable");
+
+  ctx.fillStyle = "#111111";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.textBaseline = "top";
+
+  ctx.fillStyle = "#f0f0f0";
+  ctx.font = "bold 52px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  ctx.fillText(deck.name || "Untitled Deck", PAD, PAD);
+  let y = PAD + TITLE_H;
+
+  if (sections.length === 0) {
+    ctx.fillStyle = "#888888";
+    ctx.font = "30px sans-serif";
+    ctx.fillText("(deck is empty)", PAD, y + 16);
+  }
+
+  for (const s of sections) {
+    ctx.fillStyle = "#9fb6d6";
+    ctx.font = "bold 28px sans-serif";
+    ctx.fillText(`${s.title.toUpperCase()}   ${s.ids.length}`, PAD, y + 10);
+    y += SECTION_H;
+
+    // Preload this section's art in parallel.
+    const imgs = await Promise.all(
+      s.ids.map((id) => {
+        const card = byId.get(id);
+        const imageId = card?.images[0] ?? id;
+        return loadImageEl(window.duel.cards.imageUrl(imageId));
+      }),
+    );
+
+    for (let i = 0; i < s.ids.length; i++) {
+      const col = i % COLS;
+      const row = Math.floor(i / COLS);
+      const x = PAD + col * (TILE_W + GAP);
+      const ty = y + row * (TILE_H + GAP);
+      ctx.fillStyle = "#1a1a1a";
+      ctx.fillRect(x, ty, TILE_W, TILE_H);
+      const img = imgs[i];
+      const card = byId.get(s.ids[i]!);
+      if (img) {
+        try {
+          ctx.drawImage(img, x, ty, TILE_W, TILE_H);
+        } catch {
+          drawCardName(ctx, card, x, ty, TILE_W);
+        }
+      } else {
+        drawCardName(ctx, card, x, ty, TILE_W);
+      }
+    }
+    const rows = Math.ceil(s.ids.length / COLS);
+    y += rows * TILE_H + (rows - 1) * GAP + SECTION_GAP;
+  }
+
+  return canvas.toDataURL("image/png");
 }
 
 function Art({ id, name, cls }: { id: number; name: string; cls: string }): JSX.Element {

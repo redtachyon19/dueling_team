@@ -622,6 +622,13 @@ h1 {
 .editor__body { flex: 1; min-height: 0; display: flex; gap: 14px; }
 .editor__viewer { flex: 0 0 280px; width: 280px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; border-right: 1px solid #2a2a2a; padding-right: 14px; }
 .editor__viewer::-webkit-scrollbar { width: 0; height: 0; }
+/* Pinned indicator overlaid on the viewer art. */
+.editor__viewer-art { position: relative; }
+.viewer__pin {
+  position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 4px;
+  background: #1a1407cc; border: 1px solid #f0c14b; color: #f0c14b;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.02em; padding: 2px 7px; border-radius: 3px;
+}
 
 .editor__zones { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
 .editor__zones::-webkit-scrollbar { width: 0; height: 0; }
@@ -639,12 +646,15 @@ h1 {
 }
 /* Zone tiles can be narrower than the card art when overlapping; let the art
    overflow its track so cards visibly overlay, newest on top. */
-.mini--zone { overflow: visible; }
+.mini--zone { overflow: visible; cursor: grab; }
+.mini--zone:active { cursor: grabbing; }
 .mini--zone:hover { z-index: 5; }
 
 /* --- mini card tiles (zones + search) --- */
 .mini { position: relative; width: 72px; height: 105px; cursor: pointer; background: #111; border: 1px solid #2a2a2a; border-radius: 0; }
 .mini:hover { border-color: #4a90e2; }
+/* Pinned card (clicked) — distinct gold outline that overrides hover-blue. */
+.mini--pinned, .mini--pinned:hover { border-color: #f0c14b; box-shadow: 0 0 0 1px #f0c14b; z-index: 4; }
 .mini__art { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 0; }
 .mini__count {
   position: absolute; right: 2px; bottom: 2px; min-width: 16px; text-align: center;
@@ -661,9 +671,80 @@ h1 {
 .searchpanel__meta { font-size: 11px; color: #888; }
 .searchpanel__grid {
   flex: 1; min-height: 0; overflow-y: auto;
-  display: grid; grid-template-columns: repeat(auto-fill, 72px); gap: 6px; align-content: start;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; align-content: start;
 }
+/* Search tiles fill their column (3 per row) and keep card proportions. */
+.searchpanel__grid .mini { width: 100%; height: auto; aspect-ratio: 813 / 1185; }
 .searchpanel__grid::-webkit-scrollbar { width: 0; height: 0; }
+
+/* --- search panel: filter bar (search input + filter toggle) --- */
+.searchpanel__bar { display: flex; gap: 8px; align-items: stretch; flex-shrink: 0; }
+.searchpanel__search { flex: 1; min-width: 0; }
+.filtoggle {
+  position: relative; flex: 0 0 auto; width: 34px; appearance: none;
+  background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 0; color: #cfcfcf;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.filtoggle:hover { border-color: #4a90e2; color: #fff; }
+.filtoggle--on { background: #243a55; border-color: #4a90e2; color: #fff; }
+.filtoggle svg { width: 16px; height: 16px; }
+.filtoggle__badge {
+  position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px;
+  background: #4a90e2; color: #fff; border-radius: 8px; font-size: 10px; font-weight: 700;
+  line-height: 16px; text-align: center; font-variant-numeric: tabular-nums;
+}
+
+/* --- search panel: collapsible filter panel (chips + ranges + selects) --- */
+.filterpanel {
+  display: flex; flex-direction: column; gap: 10px; flex-shrink: 0;
+  max-height: 45%; overflow-y: auto;
+  padding: 10px; border: 1px solid #2a2a2a; background: #141414;
+}
+.filterpanel::-webkit-scrollbar { width: 0; height: 0; }
+.filterpanel .cards__input { width: 100%; min-width: 0; }
+.fp-group { display: flex; flex-direction: column; gap: 5px; }
+.fp-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #777; }
+.fp-row { display: grid; gap: 6px; }
+.fp-row--2 { grid-template-columns: 1fr 1fr; }
+.chipgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.chipgrid--3 { grid-template-columns: repeat(3, 1fr); }
+.chip {
+  appearance: none; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 3px;
+  color: #aaa; font: inherit; font-size: 11px; padding: 5px 4px; cursor: pointer;
+  text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: background .1s, border-color .1s, color .1s;
+}
+.chip:hover { background: #222; color: #eee; }
+.chip--on { background: #243a55; border-color: #4a90e2; color: #fff; }
+.clearbtn {
+  align-self: flex-end; appearance: none; background: transparent; border: 1px solid transparent;
+  border-radius: 3px; color: #888; font: inherit; font-size: 12px; padding: 4px 8px; cursor: pointer;
+}
+.clearbtn:hover { color: #fff; border-color: #2a2a2a; }
+
+/* --- search panel: pool meta bar (count + sort) --- */
+.poolmeta {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-shrink: 0;
+  font-size: 12px; color: #888;
+}
+.poolmeta__sort { flex: 0 0 auto; width: auto; }
+
+/* --- editor bar: import / export menu + transient flash --- */
+.editor__flash { font-size: 12px; color: #6fcf97; white-space: nowrap; }
+.exportmenu { position: relative; display: inline-flex; }
+.exportmenu__menu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 20; min-width: 180px;
+  background: #161616; border: 1px solid #333; box-shadow: 0 8px 24px #000a; padding: 4px;
+}
+.exportmenu__item {
+  appearance: none; display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  width: 100%; background: none; border: none; color: #ddd; font: inherit; font-size: 12px;
+  text-align: left; padding: 6px 8px; cursor: pointer;
+}
+.exportmenu__item:hover { background: #243a55; color: #fff; }
+.exportmenu__ext { font-weight: 600; font-variant-numeric: tabular-nums; }
+.exportmenu__hint { color: #888; font-size: 11px; }
+.exportmenu__item:hover .exportmenu__hint { color: #bcd; }
 
 /* --- banlist status badges (deck editor) --- */
 .banbadge {

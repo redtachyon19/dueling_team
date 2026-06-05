@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { CardData } from "@duel/shared";
-import { filterCards, runQuery, prepareCards, supertypeOf, deriveFacets, expandArtworks } from "./search.ts";
+import { filterCards, runQuery, prepareCards, supertypeOf, deriveFacets, expandArtworks, frameMatchesAny } from "./search.ts";
+import type { CardQuery } from "@duel/shared";
 
 function card(overrides: Partial<CardData>): CardData {
   return {
@@ -150,5 +151,120 @@ describe("deriveFacets", () => {
     expect(f.attributes).toEqual(["DARK", "LIGHT"]);
     expect(f.frameTypes).toEqual(["normal", "spell", "trap"]);
     expect(f.archetypes).toEqual(["Blue-Eyes", "Dark Magician"]);
+  });
+});
+
+describe("ATK/DEF range filters", () => {
+  const stats = prepareCards([
+    card({ id: 1, name: "Kuriboh", atk: 300, def: 200, level: 1 }),
+    card({ id: 2, name: "Summoned Skull", atk: 2500, def: 1200, level: 6 }),
+    card({ id: 3, name: "Blue-Eyes", atk: 3000, def: 2500, level: 8 }),
+    card({ id: 4, name: "Raigeki", frameType: "spell", atk: null, def: null, level: null }),
+  ]);
+  it("atkMin excludes lower-ATK and ATK-less cards", () => {
+    expect(runQuery(stats, { atkMin: 2500 }).map((c) => c.id)).toEqual([2, 3]);
+  });
+  it("atk range is inclusive on both ends", () => {
+    expect(runQuery(stats, { atkMin: 300, atkMax: 2500 }).map((c) => c.id)).toEqual([1, 2]);
+  });
+  it("defMin excludes DEF-less cards", () => {
+    expect(runQuery(stats, { defMin: 1200 }).map((c) => c.id)).toEqual([2, 3]);
+  });
+  it("runQuery and filterCards agree on ATK/DEF queries", () => {
+    const plain = [
+      card({ id: 1, name: "Kuriboh", atk: 300, def: 200, level: 1 }),
+      card({ id: 2, name: "Summoned Skull", atk: 2500, def: 1200, level: 6 }),
+      card({ id: 3, name: "Blue-Eyes", atk: 3000, def: 2500, level: 8 }),
+    ];
+    const q = { atkMin: 1000, defMax: 2000 };
+    expect(runQuery(prepareCards(plain), q).map((c) => c.id)).toEqual(
+      filterCards(plain, q).map((c) => c.id),
+    );
+  });
+});
+
+describe("explicit sort", () => {
+  const set = prepareCards([
+    card({ id: 1, name: "Charlie", atk: 1000, def: 2000, level: 3, tcgDate: "2002-01-01" }),
+    card({ id: 2, name: "Alpha", atk: 3000, def: 500, level: 8, tcgDate: "2015-06-01" }),
+    card({ id: 3, name: "Bravo", atk: 2000, def: 2500, level: 4, tcgDate: null }),
+  ]);
+  it("sorts by name", () => {
+    expect(runQuery(set, { sort: "name" }).map((c) => c.name)).toEqual(["Alpha", "Bravo", "Charlie"]);
+  });
+  it("sorts by ATK descending and ascending", () => {
+    expect(runQuery(set, { sort: "atk-desc" }).map((c) => c.id)).toEqual([2, 3, 1]);
+    expect(runQuery(set, { sort: "atk-asc" }).map((c) => c.id)).toEqual([1, 3, 2]);
+  });
+  it("sorts by level descending", () => {
+    expect(runQuery(set, { sort: "level-desc" }).map((c) => c.id)).toEqual([2, 3, 1]);
+  });
+  it("'newest' pushes null release dates last", () => {
+    expect(runQuery(set, { sort: "newest" }).map((c) => c.id)).toEqual([2, 1, 3]);
+  });
+  it("an explicit sort overrides text relevance ranking", () => {
+    expect(runQuery(set, { text: "a", sort: "name" }).map((c) => c.name)).toEqual([
+      "Alpha", "Bravo", "Charlie",
+    ]);
+  });
+  it("'relevance' keeps DB order when there is no text", () => {
+    expect(runQuery(set, { sort: "relevance" }).map((c) => c.id)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("frameMatchesAny", () => {
+  it("matches a base frame and its pendulum variant", () => {
+    expect(frameMatchesAny("effect", ["effect"])).toBe(true);
+    expect(frameMatchesAny("effect_pendulum", ["effect"])).toBe(true);
+    expect(frameMatchesAny("effect", ["fusion"])).toBe(false);
+  });
+  it("the 'pendulum' chip matches any pendulum frame only", () => {
+    expect(frameMatchesAny("xyz_pendulum", ["pendulum"])).toBe(true);
+    expect(frameMatchesAny("effect", ["pendulum"])).toBe(false);
+  });
+});
+
+describe("multi-select chip filters", () => {
+  const set = prepareCards([
+    card({ id: 1, name: "Mon", frameType: "effect", attribute: "DARK" }),
+    card({ id: 2, name: "Spl", frameType: "spell", attribute: null }),
+    card({ id: 3, name: "Pen", frameType: "effect_pendulum", attribute: "LIGHT" }),
+    card({ id: 4, name: "Trp", frameType: "trap", attribute: null }),
+  ]);
+  it("supertypes OR within the set", () => {
+    expect(runQuery(set, { supertypes: ["Spell", "Trap"] }).map((c) => c.id)).toEqual([2, 4]);
+  });
+  it("frames include pendulum variants of a base frame", () => {
+    expect(runQuery(set, { frames: ["effect"] }).map((c) => c.id)).toEqual([1, 3]);
+  });
+  it("the pendulum frame chip selects only pendulums", () => {
+    expect(runQuery(set, { frames: ["pendulum"] }).map((c) => c.id)).toEqual([3]);
+  });
+  it("attributes OR within the set and exclude attribute-less cards", () => {
+    expect(runQuery(set, { attributes: ["DARK", "LIGHT"] }).map((c) => c.id)).toEqual([1, 3]);
+  });
+  it("runQuery and filterCards agree on chip filters", () => {
+    const plain = [
+      card({ id: 1, frameType: "effect", attribute: "DARK" }),
+      card({ id: 2, frameType: "spell", attribute: null }),
+    ];
+    const q: CardQuery = { supertypes: ["Monster"], attributes: ["DARK"] };
+    expect(runQuery(prepareCards(plain), q).map((c) => c.id)).toEqual(
+      filterCards(plain, q).map((c) => c.id),
+    );
+  });
+});
+
+describe("type sort", () => {
+  const set = prepareCards([
+    card({ id: 1, name: "B", frameType: "trap" }),
+    card({ id: 2, name: "A", frameType: "spell" }),
+    card({ id: 3, name: "Z", frameType: "effect" }),
+    card({ id: 4, name: "Y", frameType: "normal" }),
+  ]);
+  it("orders Monsters first, then Spells, then Traps", () => {
+    expect(runQuery(set, { sort: "type" }).map((c) => c.frameType)).toEqual([
+      "effect", "normal", "spell", "trap",
+    ]);
   });
 });

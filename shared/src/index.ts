@@ -215,6 +215,23 @@ export interface DeckSummary {
 }
 
 /**
+ * Result ordering for a card query. "relevance" (the default) keeps the
+ * text-match ranking when a free-text query is present, or the database order
+ * otherwise. Every other value forces an explicit ordering, overriding rank.
+ */
+export type CardSort =
+  | "relevance"
+  | "name"
+  | "atk-desc"
+  | "atk-asc"
+  | "def-desc"
+  | "def-asc"
+  | "level-desc"
+  | "level-asc"
+  | "type"
+  | "newest";
+
+/**
  * Search criteria for the card browser. Every field is optional; an absent or
  * empty field means "no constraint on this dimension". All constraints are
  * AND-ed together.
@@ -227,7 +244,23 @@ export interface CardQuery {
   archetype?: string;
   frameType?: string;
   supertype?: CardSupertype;
+  /** Multi-select Card Type chips — a card matches if its supertype is in the set. */
+  supertypes?: CardSupertype[];
+  /** Multi-select Frame chips — base frames ("normal", "effect", …) plus the
+   *  special "pendulum" (matches any Pendulum variant). A card matches if its
+   *  frame is in the set. */
+  frames?: string[];
+  /** Multi-select Attribute chips — a card matches if its attribute is in the set. */
+  attributes?: string[];
   /** Inclusive level/rank bounds. */
   levelMin?: number;
   levelMax?: number;
+  /** Inclusive ATK bounds. When set, cards without an ATK are excluded. */
+  atkMin?: number;
+  atkMax?: number;
+  /** Inclusive DEF bounds. When set, cards without a DEF are excluded. */
+  defMin?: number;
+  defMax?: number;
+  /** Result ordering. Absent or "relevance" keeps text-rank / DB order. */
+  sort?: CardSort;
 }
