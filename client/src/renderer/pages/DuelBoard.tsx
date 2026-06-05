@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { CardData, DuelCard, DuelOption, DuelPhase, DuelPrompt, DuelResponse, DuelState, DuelUpdate, PromptCard } from "@duel/shared";
 import cardBack from "../../../../assets/cards/sleeves/original_card_sleeve.png";
+import { CardViewer } from "./CardViewer.tsx";
 
 const EMPTY_SET: Set<string> = new Set();
 
@@ -378,7 +379,7 @@ export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => vo
       </div>
 
       <div className="duelboard__main">
-        <DuelViewer card={preview} />
+        <CardViewer tile={preview ? { card: preview, imageId: preview.images[0] ?? preview.id } : null} />
 
         <div className="duelboard__play">
           <Hand cards={opp.hand} nameOf={nameOf} actionable={EMPTY_SET} opponent />
@@ -720,34 +721,6 @@ function AnimatedLP({ value }: { value: number }): JSX.Element {
     };
   }, [value]);
   return <span className={`dlp${flash ? ` dlp--${flash}` : ""}`}>LP {disp}</span>;
-}
-
-/** Fixed left-side card viewer — the same panel as the Cards search. Shows the
- *  currently/last-hovered card. */
-function DuelViewer({ card }: { card: CardData | null }): JSX.Element {
-  if (!card) {
-    return (
-      <aside className="duelboard__viewer">
-        <img className="cards__viewer-art" src={cardBack} alt="Card back" />
-        <div className="cards__viewer-info"><div className="cards__viewer-sub">Hover a card to preview it.</div></div>
-      </aside>
-    );
-  }
-  const monster = /Monster/i.test(card.type);
-  const sub = monster
-    ? [card.attribute, card.race, card.level != null ? `Lv ${card.level}` : null].filter(Boolean).join(" · ")
-    : [card.type, card.race].filter(Boolean).join(" · ");
-  return (
-    <aside className="duelboard__viewer">
-      <CardArt code={card.images[0] ?? card.id} alt={card.name} cls="cards__viewer-art" />
-      <div className="cards__viewer-info">
-        <div className="cards__viewer-name">{card.name}</div>
-        <div className="cards__viewer-sub">{sub}</div>
-        {monster && card.atk != null && <div className="cards__viewer-atk">ATK {card.atk} / DEF {card.def ?? "—"}</div>}
-        <p className="cards__viewer-desc">{card.desc}</p>
-      </div>
-    </aside>
-  );
 }
 
 /** Pick the most salient event in a batch to flash as an announcer banner. */

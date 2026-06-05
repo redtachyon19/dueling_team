@@ -1,11 +1,29 @@
 // client/src/renderer/pages/Settings.tsx
 //
 // Settings page, reached from the gear icon at the right of the nav bar.
-// Scaffold for now — app info plus room for future preferences.
+// App info plus gesture references.
 
-/** In-duel gestures, shown as a reference list on the Settings page. Keep this
- *  in sync with the gesture handlers in pages/DuelBoard.tsx. */
-const GESTURES: { keys: string[]; action: string }[] = [
+type Gesture = { keys: string[]; action: string };
+
+/** Deck-builder gestures. Keep in sync with the handlers in pages/Deck.tsx. */
+const DECK_GESTURES: Gesture[] = [
+  { keys: ["Hover"], action: "Preview a card in the viewer" },
+  { keys: ["Click"], action: "Pin a card to the viewer (click again to unpin)" },
+  { keys: ["Shift", "Click"], action: "Extend the selection to a range of cards" },
+  { keys: ["Double-click"], action: "Add a search-pool card to the deck" },
+  { keys: ["Arrow keys"], action: "Move the selection between cards" },
+  { keys: ["Shift", "Arrow keys"], action: "Select multiple cards (extend the range)" },
+  { keys: ["Enter"], action: "Add the selected pool cards to the deck" },
+  { keys: ["Delete / Backspace"], action: "Remove the selected cards from the deck" },
+  { keys: ["Esc"], action: "Clear the current selection" },
+  { keys: ["Drag pool card", "→ a zone"], action: "Add the card to the deck" },
+  { keys: ["Drag deck card", "→ another zone"], action: "Move it between Main / Extra / Side" },
+  { keys: ["Drag a card", "out of the deck"], action: "Remove it instantly" },
+  { keys: ["Drag a selection"], action: "Add / move / remove every selected card at once" },
+];
+
+/** In-duel gestures. Keep in sync with the gesture handlers in pages/DuelBoard.tsx. */
+const DUEL_GESTURES: Gesture[] = [
   { keys: ["Hold deck 3s"], action: "Surrender the duel" },
   { keys: ["Drag spell/trap", "→ Spell/Trap zone"], action: "Activate the card" },
   { keys: ["Shift", "Drag spell/trap", "→ Spell/Trap zone"], action: "Set the card face-down" },
@@ -15,6 +33,23 @@ const GESTURES: { keys: string[]; action: string }[] = [
   { keys: ["Space"], action: "On a response prompt — respond / activate" },
   { keys: ["Shift"], action: "On a response prompt — No Response / decline" },
 ];
+
+function GestureList({ items }: { items: Gesture[] }): JSX.Element {
+  return (
+    <ul className="settings__gestures">
+      {items.map((g) => (
+        <li key={g.action} className="settings__gesture">
+          <span className="settings__gesture-keys">
+            {g.keys.map((k, i) => (
+              <kbd key={i} className="settings__kbd">{k}</kbd>
+            ))}
+          </span>
+          <span className="settings__gesture-action">{g.action}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export function Settings(): JSX.Element {
   const version = window.duel?.version ?? "—";
@@ -33,19 +68,13 @@ export function Settings(): JSX.Element {
       </section>
 
       <section className="settings__section">
-        <h2 className="settings__heading">Gestures</h2>
-        <ul className="settings__gestures">
-          {GESTURES.map((g) => (
-            <li key={g.action} className="settings__gesture">
-              <span className="settings__gesture-keys">
-                {g.keys.map((k, i) => (
-                  <kbd key={i} className="settings__kbd">{k}</kbd>
-                ))}
-              </span>
-              <span className="settings__gesture-action">{g.action}</span>
-            </li>
-          ))}
-        </ul>
+        <h2 className="settings__heading">Deck Builder Gestures</h2>
+        <GestureList items={DECK_GESTURES} />
+      </section>
+
+      <section className="settings__section">
+        <h2 className="settings__heading">Duel Gestures</h2>
+        <GestureList items={DUEL_GESTURES} />
       </section>
 
       <p className="settings__note">More settings coming soon.</p>

@@ -296,8 +296,9 @@ h1 {
 }
 
 .cards__viewer-art {
-  width: 100%;
-  aspect-ratio: 813 / 1185; /* full-card proportions */
+  /* True physical Yu-Gi-Oh card size for this display (59mm × 86mm at ~4.98px/mm). */
+  width: 294px;
+  height: 429px;
   object-fit: contain;
   background: #111;
   border: 1px solid #2a2a2a;
@@ -620,10 +621,9 @@ h1 {
 .tagedit__input:focus { outline: none; border-color: #4a90e2; }
 
 .editor__body { flex: 1; min-height: 0; display: flex; gap: 14px; }
-.editor__viewer { flex: 0 0 280px; width: 280px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; border-right: 1px solid #2a2a2a; padding-right: 14px; }
-.editor__viewer::-webkit-scrollbar { width: 0; height: 0; }
-/* Pinned indicator overlaid on the viewer art. */
-.editor__viewer-art { position: relative; }
+/* Pinned indicator overlaid on the viewer art (shared by both card viewers).
+   align-self keeps the wrapper sized to the card so the badge hugs its corner. */
+.cards__viewer-art-wrap { position: relative; align-self: flex-start; }
 .viewer__pin {
   position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 4px;
   background: #1a1407cc; border: 1px solid #f0c14b; color: #f0c14b;
@@ -1069,12 +1069,6 @@ h1 {
 
 /* Left-side card viewer panel (same look as the Cards search). */
 .duelboard__main { flex: 1; min-height: 0; display: flex; gap: 14px; }
-.duelboard__viewer {
-  flex: 0 0 320px; width: 320px; display: flex; flex-direction: column; gap: 12px;
-  overflow-y: auto; border-right: 1px solid #2a2a2a; padding-right: 16px;
-}
-.duelboard__viewer::-webkit-scrollbar { width: 0; }
-.duelboard__viewer .cards__viewer-art { animation: none; }
 .duelboard__play { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 
 .dphase { display: flex; gap: 3px; }

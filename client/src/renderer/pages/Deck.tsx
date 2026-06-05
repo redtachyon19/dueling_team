@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CardData, CardQuery, CardSort, CardSupertype, Deck, DeckSummary } from "@duel/shared";
-import { runQuery, prepareCards, deriveFacets, supertypeOf } from "../cards/search.ts";
+import { runQuery, prepareCards, deriveFacets } from "../cards/search.ts";
 import type { PreparedCard } from "../cards/search.ts";
 import { parseYdk, serializeYdk, safeFilename, toDeckListText, toDeckJson } from "../cards/deck-io.ts";
 import { stepIndex, rangeInclusive, type ArrowKey } from "../cards/grid-nav.ts";
+import { CardViewer } from "./CardViewer.tsx";
 import {
   addCard,
   validateDeck,
@@ -692,49 +693,24 @@ function statusBadge(status: BanStatus): { label: string; cls: string } | null {
   }
 }
 
+// Deck-builder viewer: the SAME CardViewer as the Cards database, with the
+// deck-specific format badge + pin indicator passed in. Keeping one component
+// means both viewers always render identically.
 function DeckViewerPanel({ card, mode, status, cost, isPinned, selectedCount }: { card: CardData | null; mode: FormatMode; status: BanStatus | null; cost: number; isPinned: boolean; selectedCount: number }): JSX.Element {
-  if (!card) {
-    return (
-      <aside className="editor__viewer">
-        <img className="cards__viewer-art" src={cardBack} alt="Card back" />
-      </aside>
-    );
-  }
-  const stats =
-    supertypeOf(card) === "Monster"
-      ? [card.attribute, card.race, card.level != null ? `Lv ${card.level}` : null].filter(Boolean).join(" · ")
-      : [card.type, card.race].filter(Boolean).join(" · ");
-  const badge = status ? statusBadge(status) : null;
-  return (
-    <aside className="editor__viewer">
-      <div className="editor__viewer-art">
-        <Art id={card.images[0] ?? card.id} name={card.name} cls="cards__viewer-art" />
-        {isPinned && (
-          <span className="viewer__pin" title="Shift+Arrow to select more; click again to unpin">
-            {selectedCount > 1 ? `📌 ${selectedCount} selected` : "📌 Pinned"}
-          </span>
-        )}
+  const tile = card ? { card, imageId: card.images[0] ?? card.id } : null;
+  const sb = status ? statusBadge(status) : null;
+  const badge =
+    mode === "tcg" ? (
+      <div className={`banbadge banbadge--${sb ? sb.cls : "unlimited"} banbadge--inline`}>
+        {sb ? sb.label : "Unlimited"}
       </div>
-      <div className="cards__viewer-info">
-        <div className="cards__viewer-name">{card.name}</div>
-        {mode === "tcg" && (
-          <div className={`banbadge banbadge--${badge ? badge.cls : "unlimited"} banbadge--inline`}>
-            {badge ? badge.label : "Unlimited"}
-          </div>
-        )}
-        {mode === "genesys" && (
-          <div className={`banbadge banbadge--${cost > 0 ? "genesys" : "unlimited"} banbadge--inline`}>
-            {cost > 0 ? `${cost} pts` : "Free"}
-          </div>
-        )}
-        <div className="cards__viewer-sub">{stats}</div>
-        {supertypeOf(card) === "Monster" && card.atk != null && (
-          <div className="cards__viewer-atk">ATK {card.atk} / DEF {card.def ?? "—"}</div>
-        )}
-        <p className="cards__viewer-desc">{card.desc}</p>
+    ) : mode === "genesys" ? (
+      <div className={`banbadge banbadge--${cost > 0 ? "genesys" : "unlimited"} banbadge--inline`}>
+        {cost > 0 ? `${cost} pts` : "Free"}
       </div>
-    </aside>
-  );
+    ) : undefined;
+  const pinLabel = isPinned ? (selectedCount > 1 ? `${selectedCount} selected` : "Pinned") : undefined;
+  return <CardViewer tile={tile} badge={badge} pinLabel={pinLabel} />;
 }
 
 /** Small corner badge overlaid on a mini tile (zones + search). */
