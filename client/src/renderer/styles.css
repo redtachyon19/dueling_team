@@ -860,19 +860,26 @@ h1 {
 .duelboard {
   position: relative;
   /* Zone size scales to fill the space: limited by width (9 columns beside the
-     ~320px preview panel) or height (4 rows + hand), whichever is smaller. */
-  --zone: clamp(76px, min((100vw - 470px) / 9, (100vh - 210px) / 5), 220px);
+     ~320px preview panel) or height (5 zone-rows — 2 per side + the central
+     Extra Monster Zones — plus the hands), whichever is smaller. Capped at 176px
+     so the card (--card-w ≈ 110px) matches the deck builder's search-tile size;
+     it shrinks below that on shorter windows so the field never clips. */
+  --zone: clamp(72px, min((100vw - 470px) / 9, (100vh - 210px) / 6), 176px);
   /* The card-shaped slot is shorter than the square so there's padding all
      around — and so a rotated (defense/set) card still clears the edges. */
   --card-h: calc(var(--zone) - 16px);
   --card-w: calc(var(--card-h) * 0.686);
   display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 8px;
+  overflow: hidden; /* the bar stays put; the field clips instead of scrolling it off */
 }
 .duelboard__bar { display: flex; align-items: center; gap: 12px; flex-shrink: 0; padding-bottom: 10px; border-bottom: 1px solid #2a2a2a; }
 .duelboard__turn { font-size: 13px; color: #ccc; font-variant-numeric: tabular-nums; }
 .duelboard__warn { font-size: 12px; color: #c8a24a; }
 
 .duelboard__field { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 6px; background: transparent; border: none; padding: 8px 0; overflow: hidden; }
+/* Game-over result — fills and centers on the duel field (not the whole window). */
+.dfield-over { position: absolute; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: rgba(8, 8, 8, 0.55); backdrop-filter: blur(1px); }
+.dfield-over__box { background: #141414; border: 1px solid #2a2a2a; border-radius: 6px; padding: 18px 44px; box-shadow: 0 12px 36px #000b; font-size: 24px; font-weight: 700; color: #eee; text-align: center; }
 .duelboard__divider { height: 1px; background: linear-gradient(90deg, transparent, #2a2a2a, transparent); margin: 4px 0; }
 .duelboard__side { display: flex; flex-direction: column; gap: 6px; }
 .duelboard__sidehead { display: flex; align-items: center; gap: 14px; font-size: 12px; color: #9fb0a4; }
@@ -882,6 +889,15 @@ h1 {
 .dpile { color: #889; font-variant-numeric: tabular-nums; }
 
 .duelboard__row { display: flex; gap: 6px; justify-content: center; align-items: center; flex-wrap: nowrap; }
+/* The 2 shared Extra Monster Zones, centered between the two players' fields. */
+.duelboard__emz { display: flex; gap: 6px; justify-content: center; align-items: center; }
+/* The local Extra Deck is clickable to browse its contents. */
+.dzone--pile.is-browsable { cursor: pointer; }
+.dzone--pile.is-browsable:hover { border-color: #8a6fc0; }
+/* Extra Deck pile signals when a summon is available from it. */
+.dzone--pile.is-summon-ready { border-color: #34d399; box-shadow: 0 0 0 2px #34d399, 0 0 14px rgba(52, 211, 153, 0.5); }
+@keyframes extra-ready-pulse { 0%, 100% { box-shadow: 0 0 0 2px #34d399, 0 0 8px rgba(52, 211, 153, 0.4); } 50% { box-shadow: 0 0 0 2px #34d399, 0 0 16px rgba(52, 211, 153, 0.75); } }
+.dzone--pile.is-summon-ready { animation: extra-ready-pulse 1.6s ease-in-out infinite; }
 .duelboard__row--rev { flex-direction: row-reverse; } /* opponent: mirror left-right (180° flip) */
 /* A zone container's WIDTH equals a card's height, so a card rotated to
    defense/set (90°) spans the full width with no side padding. The height
@@ -1053,6 +1069,12 @@ h1 {
 .dprompt--wait, .dprompt--over { align-items: center; justify-content: center; }
 .dprompt__title { font-size: 13px; font-weight: 600; color: #ddd; flex-shrink: 0; }
 .dprompt--over .dprompt__title { font-size: 22px; }
+/* Response-window countdown (chain / yes-no / activate-effect). */
+.dprompt__timer { font-variant-numeric: tabular-nums; font-weight: 700; color: #8a9a8c; }
+.dprompt__timer.is-urgent { color: #f87171; }
+.dprompt__timerbar { height: 3px; background: #2a2a2a; border-radius: 2px; overflow: hidden; flex-shrink: 0; }
+.dprompt__timerbar-fill { height: 100%; background: #34d399; border-radius: 2px; }
+.dprompt__timerbar-fill.is-urgent { background: #f87171; }
 .dprompt__opts { display: flex; flex-wrap: wrap; gap: 8px; overflow-y: auto; }
 .dprompt__opt {
   appearance: none; display: flex; align-items: center; gap: 8px; background: #1a1a1a; border: 1px solid #333;
@@ -1064,9 +1086,17 @@ h1 {
 .dprompt__optlabel { display: flex; flex-direction: column; line-height: 1.2; }
 .dprompt__optname { color: #8ab4ff; font-style: normal; font-size: 11px; }
 .dprompt__cards { display: flex; flex-wrap: wrap; gap: 6px; overflow-y: auto; }
-.dprompt__card { appearance: none; width: 50px; height: 73px; padding: 0; background: none; border: 2px solid transparent; cursor: pointer; }
+.dprompt__card { position: relative; appearance: none; width: 50px; height: 73px; padding: 0; background: none; border: 2px solid transparent; cursor: pointer; }
 .dprompt__card .dcard__art { width: 100%; height: 100%; object-fit: contain; }
 .dprompt__card.is-sel { border-color: #4a90e2; }
+/* An Extra Deck card whose summon requirements are met: glow + summon-type tag. */
+.dprompt__card.is-summonable { border-color: #34d399; box-shadow: 0 0 10px rgba(52, 211, 153, 0.65); }
+.dprompt__card.is-summonable:hover { box-shadow: 0 0 14px rgba(52, 211, 153, 0.9); }
+.dprompt__cardtag {
+  position: absolute; left: 50%; bottom: 3px; transform: translateX(-50%);
+  background: rgba(6, 95, 70, 0.95); color: #d1fae5; font-size: 8px; font-weight: 700;
+  letter-spacing: 0.2px; padding: 1px 4px; border-radius: 5px; white-space: nowrap; pointer-events: none;
+}
 .dprompt__actions { display: flex; gap: 8px; flex-shrink: 0; }
 
 .dlog { flex: 0 0 240px; background: #0d0d0d; border: 1px solid #2a2a2a; padding: 8px; overflow-y: auto; font-size: 11px; color: #9a9; font-family: ui-monospace, monospace; }

@@ -72,9 +72,12 @@ export function emptyPlayerState(lp: number): DuelPlayerState {
   return {
     lp,
     hand: [],
-    monsters: [null, null, null, null, null],
+    monsters: [null, null, null, null, null, null, null],
     spells: [null, null, null, null, null],
     field: null,
+    extra: [],
+    grave: [],
+    banished: [],
     graveCount: 0,
     graveTop: null,
     banishCount: 0,
