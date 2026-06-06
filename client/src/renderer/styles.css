@@ -883,15 +883,15 @@ h1 {
 
 .duelboard__row { display: flex; gap: 6px; justify-content: center; align-items: center; flex-wrap: nowrap; }
 .duelboard__row--rev { flex-direction: row-reverse; } /* opponent: mirror left-right (180° flip) */
-/* A zone is a SQUARE container (side = card height). The card-shaped (portrait)
-   dashed slot sits inside it, so a card rotated to defense/set still fits the
-   square without ever being cropped. */
+/* A zone container's WIDTH equals a card's height, so a card rotated to
+   defense/set (90°) spans the full width with no side padding. The height
+   keeps the full square so a portrait (attack-position) card still fits. */
 .dzone {
-  position: relative; width: var(--zone); height: var(--zone); flex: 0 0 auto;
+  position: relative; width: var(--card-h); height: var(--zone); flex: 0 0 auto;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid #16201a; background: #0a0d0a;
 }
-.dzone-spacer { width: var(--zone); height: var(--zone); flex: 0 0 auto; visibility: hidden; }
+.dzone-spacer { width: var(--card-h); height: var(--zone); flex: 0 0 auto; visibility: hidden; }
 
 .dslot {
   position: relative; width: var(--card-w); height: var(--card-h);
