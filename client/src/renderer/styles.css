@@ -905,6 +905,11 @@ h1 {
   transition: transform 160ms ease;
 }
 .dcard--rot { transform: rotate(90deg); } /* defense / face-down defense monster */
+/* The opponent sits across the table, so their field cards are turned a full
+   180° (and their defense/set cards 180 + 90 = 270°). Opponent rows are the
+   row-reversed ones. */
+.duelboard__row--rev .dcard { transform: rotate(180deg); }
+.duelboard__row--rev .dcard--rot { transform: rotate(270deg); }
 .dslot .dcard__art, .dcard .dcard__art { width: 100%; height: 100%; object-fit: contain; display: block; }
 
 /* Zone accents are keyed to the card-type palette (see FRAME_COLORS): monsters
@@ -968,15 +973,17 @@ h1 {
 .dhand { position: relative; flex-shrink: 0; height: calc(var(--card-h) + 40px); }
 .dhand__empty { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #667; font-size: 12px; }
 
-/* Opponent's hand: revealed but view-only, shown compact along the top edge. */
+/* Opponent's hand: revealed but view-only. Rendered as the player's hand turned
+   a full 180° (as it looks from across the table) — upside-down cards, the fan
+   curving to their side, anchored along the top edge. Cards inherit the board's
+   default --card-h/--card-w, so they match the field cards in size. */
 .dhand--opp {
-  --card-h: calc((var(--zone) - 16px) * 0.6);
-  --card-w: calc(var(--card-h) * 0.686);
   height: calc(var(--card-h) + 12px);
+  transform: rotate(180deg);
 }
 .dhand--opp .dhand__slot { cursor: default; }
-/* It sits at the top, so the hover lift goes downward (into the board). */
-.dhand--opp .dhand__slot:hover .dhand__card { transform: translateY(10px) scale(1.05); }
+/* The 180° turn flips the base hover (translateY(-20px)) so it lifts the card
+   down into the board, which is what we want — no opponent-specific override. */
 .dhand__slot {
   position: absolute; left: 50%; bottom: 4px;
   width: var(--card-w); height: var(--card-h); cursor: default;
