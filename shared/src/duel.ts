@@ -30,12 +30,18 @@ export interface DuelCard {
 export interface DuelPlayerState {
   lp: number;
   hand: DuelCard[];
-  /** Main monster zones (length 5); null = empty. */
+  /** Monster zones: 0–4 main + 5–6 Extra Monster Zones (length 7); null = empty. */
   monsters: (DuelCard | null)[];
   /** Main spell/trap zones (length 5); null = empty. */
   spells: (DuelCard | null)[];
   /** The field-spell zone card, or null when empty. */
   field: DuelCard | null;
+  /** The owner's Extra Deck contents (face-up to its owner); empty for the opponent. */
+  extra: DuelCard[];
+  /** Full Graveyard contents (public), oldest→newest; for the pile browser. */
+  grave: DuelCard[];
+  /** Full Banished contents (public; face-down banished stay hidden). */
+  banished: DuelCard[];
   graveCount: number;
   /** Passcode of the top (most recent) graveyard card, shown face-up; null when empty. */
   graveTop: number | null;
@@ -106,6 +112,7 @@ export type DuelPromptKind =
   | "idle"
   | "battle"
   | "selectCard"
+  | "selectUnselect"
   | "selectPlace"
   | "selectPosition"
   | "selectChain"

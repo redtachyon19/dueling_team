@@ -27,11 +27,14 @@ const DUEL_GESTURES: Gesture[] = [
   { keys: ["Hold deck 3s"], action: "Surrender the duel" },
   { keys: ["Drag spell/trap", "→ Spell/Trap zone"], action: "Activate the card" },
   { keys: ["Shift", "Drag spell/trap", "→ Spell/Trap zone"], action: "Set the card face-down" },
-  { keys: ["Drag monster", "→ field"], action: "Normal Summon" },
+  { keys: ["Drag monster", "→ field"], action: "Normal Summon (or Special Summon if that's its only play)" },
   { keys: ["Shift", "Drag monster", "→ field"], action: "Set the monster face-down" },
-  { keys: ["⌘ / Ctrl", "Drag monster", "→ field"], action: "Special Summon (if applicable)" },
-  { keys: ["Space"], action: "On a response prompt — respond / activate" },
-  { keys: ["Shift"], action: "On a response prompt — No Response / decline" },
+  { keys: ["⌘ / Ctrl", "Drag monster", "→ field"], action: "Special Summon (if its conditions are met)" },
+  { keys: ["Click Extra Deck card"], action: "Special Summon from the Extra Deck (when summonable)" },
+  { keys: ["Click Graveyard / Banished"], action: "Browse that pile's cards" },
+  { keys: ["G"], action: "Open / close your Graveyard" },
+  { keys: ["Space"], action: "On a response prompt — respond / activate (Yes)" },
+  { keys: ["Shift"], action: "On a response prompt — No Response / decline (auto after 30s)" },
 ];
 
 function GestureList({ items }: { items: Gesture[] }): JSX.Element {

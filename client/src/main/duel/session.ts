@@ -34,6 +34,7 @@ import type {
   PromptCard,
 } from "@duel/shared";
 import { getCore, buildReaders, partitionSupported, type OcgReaders } from "./ocg.ts";
+import { shuffleDeck } from "./shuffle.ts";
 
 // Combined query flag bitmask (the lib types flags as a single-flag union, so
 // the OR'd mask is asserted back to that type).
@@ -76,6 +77,10 @@ export class DuelSession {
   private turnPlayer: DuelPlayer = 0;
   private phaseRaw = 0;
   private over = false;
+  // True once the ocgcore handle has been destroyed, so teardown is idempotent —
+  // calling destroyDuel twice on the same handle is a WASM out-of-bounds crash
+  // (hit by surrender→start-new-duel, and by HMR churn restarting the board).
+  private destroyed = false;
   private winner: DuelPlayer | null = null;
   private goldfish = true;
 
@@ -124,8 +129,10 @@ export class DuelSession {
 
     for (const { name, content } of this.readers.baseScripts) this.core.loadScript(handle, name, content);
 
-    // Player 0 = local deck; player 1 = goldfish dummy (vanilla) deck.
-    this.addDeck(0, mainPart.supported, extraPart.supported);
+    // Player 0 = local deck; player 1 = goldfish dummy (vanilla) deck. The main
+    // deck is shuffled here (seeded from the duel seed) and loaded in that order;
+    // ocgcore's insert-shuffle isn't relied on. The Extra deck isn't shuffled.
+    this.addDeck(0, shuffleDeck(mainPart.supported, seed), extraPart.supported);
     this.addDeck(1, this.dummyDeck(), []);
 
     try {
@@ -140,7 +147,7 @@ export class DuelSession {
 
   /** The local player answers the current prompt. */
   respond(r: DuelResponse): void {
-    if (this.over || r.promptId !== this.pendingPromptId || !this.pendingResolve) return;
+    if (this.destroyed || this.over || r.promptId !== this.pendingPromptId || !this.pendingResolve) return;
     const resp = this.pendingResolve(r);
     if (!resp) return; // invalid choice — ignore, leave prompt up
     this.pendingResolve = null;
@@ -163,18 +170,21 @@ export class DuelSession {
       prompt: null,
       events: [{ kind: "win", player: 1 }],
     };
-    try {
-      if (this.handle) this.core.destroyDuel(this.handle);
-    } catch {
-      /* ignore */
-    }
+    this.teardown();
     this.onUpdate(update);
   }
 
   end(): void {
     this.over = true;
+    this.teardown();
+  }
+
+  /** Destroy the ocgcore handle exactly once. Safe to call repeatedly. */
+  private teardown(): void {
+    if (this.destroyed || !this.handle) return;
+    this.destroyed = true;
     try {
-      if (this.handle) this.core.destroyDuel(this.handle);
+      this.core.destroyDuel(this.handle);
     } catch {
       /* ignore */
     }
@@ -182,6 +192,7 @@ export class DuelSession {
 
   // --- core driver ----------------------------------------------------------
   private run(): void {
+    if (this.destroyed || !this.handle) return; // never drive a torn-down duel
     // Accumulate events across all CONTINUE batches until the next pause
     // (prompt or END), so nothing that happened between prompts is dropped.
     const events: DuelEvent[] = [];
@@ -292,12 +303,28 @@ export class DuelSession {
       const grave = this.queryLoc(p, OcgLocation.GRAVE).filter(Boolean) as Record<string, any>[];
       const graveTopCard = grave[grave.length - 1];
       const graveTop: number | null = graveTopCard?.code ?? null;
+      // Full GY / banished lists (both public) so either pile can be browsed.
+      const graveCards: DuelCard[] = grave.map((c, i) => this.toCard(c, i, p, "grave"));
+      const banished: DuelCard[] = (this.queryLoc(p, OcgLocation.REMOVED).filter(Boolean) as Record<string, any>[])
+        .map((c, i) => this.toCard(c, i, p, "banish"));
+      // The Field Spell lives in the spell array at index 5 (NOT OcgLocation.FZONE,
+      // which this core leaves empty). Spell/Trap zones are indices 0–4.
+      const szone = this.queryLoc(p, OcgLocation.SZONE);
+      const fieldCard = szone[5] ? this.toCard(szone[5] as Record<string, any>, 5, p, "szone") : null;
+      // Surface the local player's Extra Deck so it can be browsed (it's public
+      // to its owner). The opponent's stays hidden.
+      const extra: DuelCard[] = p === 0
+        ? (this.queryLoc(p, OcgLocation.EXTRA).filter(Boolean) as Record<string, any>[]).map((c, i) => this.toCard(c, i, p, "extra"))
+        : [];
       return {
         lp: this.lp[p],
         hand: this.queryLoc(p, OcgLocation.HAND).filter(Boolean).map((c, i) => this.toCard(c!, i, p, "hand")),
-        monsters: this.zoneArray(p, OcgLocation.MZONE, 5, "mzone"),
+        monsters: this.zoneArray(p, OcgLocation.MZONE, 7, "mzone"), // 0–4 main + 5–6 Extra Monster Zones
         spells: this.zoneArray(p, OcgLocation.SZONE, 5, "szone"),
-        field: this.zoneArray(p, OcgLocation.FZONE, 1, "fzone")[0] ?? null,
+        field: fieldCard,
+        extra,
+        grave: graveCards,
+        banished,
         graveCount: fp.grave_size,
         graveTop,
         banishCount: fp.banish_size,
@@ -358,6 +385,7 @@ export class DuelSession {
       case OcgMessageType.SELECT_IDLECMD: {
         const opts: DuelOption[] = [];
         m.summons.forEach((c, i) => opts.push({ id: `summon:${i}`, label: "Normal Summon", code: c.code, ...locOf(c) }));
+        m.special_summons.forEach((c, i) => opts.push({ id: `spsummon:${i}`, label: "Special Summon", code: c.code, ...locOf(c) }));
         m.monster_sets.forEach((c, i) => opts.push({ id: `mset:${i}`, label: "Set Monster", code: c.code, ...locOf(c) }));
         m.spell_sets.forEach((c, i) => opts.push({ id: `sset:${i}`, label: "Set Spell/Trap", code: c.code, ...locOf(c) }));
         m.activates.forEach((c, i) => opts.push({ id: `activate:${i}`, label: "Activate", code: c.code, ...locOf(c) }));
@@ -374,6 +402,7 @@ export class DuelSession {
             const A = SelectIdleCMDAction;
             switch (kind) {
               case "summon": this.pendingPlaceKind = "monster"; return { type: OcgResponseType.SELECT_IDLECMD, action: A.SELECT_SUMMON, index: i };
+              case "spsummon": this.pendingPlaceKind = "monster"; return { type: OcgResponseType.SELECT_IDLECMD, action: A.SELECT_SPECIAL_SUMMON, index: i };
               case "mset": this.pendingPlaceKind = "monster"; return { type: OcgResponseType.SELECT_IDLECMD, action: A.SELECT_MONSTER_SET, index: i };
               case "sset": this.pendingPlaceKind = "spell"; return { type: OcgResponseType.SELECT_IDLECMD, action: A.SELECT_SPELL_SET, index: i };
               case "activate": this.pendingPlaceKind = "spell"; return { type: OcgResponseType.SELECT_IDLECMD, action: A.SELECT_ACTIVATE, index: i };
@@ -410,7 +439,12 @@ export class DuelSession {
       }
       case OcgMessageType.SELECT_PLACE: {
         const opts: DuelOption[] = [];
-        for (let seq = 0; seq < 5; seq++) if ((m.field_mask & (1 << seq)) === 0) opts.push({ id: `m:${seq}`, label: `Monster Zone ${seq + 1}` });
+        // Monster bits 0–6 = main zones 0–4 plus the 2 Extra Monster Zones (5–6).
+        for (let seq = 0; seq < 7; seq++) {
+          if ((m.field_mask & (1 << seq)) === 0) {
+            opts.push({ id: `m:${seq}`, label: seq < 5 ? `Monster Zone ${seq + 1}` : `Extra Monster Zone ${seq - 4}` });
+          }
+        }
         for (let seq = 0; seq < 5; seq++) if ((m.field_mask & (1 << (8 + seq))) === 0) opts.push({ id: `s:${seq}`, label: `Spell/Trap Zone ${seq + 1}` });
         const prompt = this.nextPrompt(m.player, "selectPlace", "Choose a zone", opts);
         return {
@@ -449,19 +483,18 @@ export class DuelSession {
           },
         };
       }
-      case OcgMessageType.SELECT_CARD:
-      case OcgMessageType.SELECT_UNSELECT_CARD: {
-        const selects = (m as any).selects ?? [];
-        const cards: PromptCard[] = selects.map((c: any, i: number) => ({
+      case OcgMessageType.SELECT_CARD: {
+        const selects = m.selects ?? [];
+        const cards: PromptCard[] = selects.map((c, i) => ({
           ref: String(i),
           code: c.code ?? null,
           location: LOCATION_NAME[c.location] ?? String(c.location),
           seq: c.sequence,
           controller: c.controller as DuelPlayer,
         }));
-        const min = (m as any).min ?? 1;
-        const max = (m as any).max ?? 1;
-        const cancelable = !!(m as any).can_cancel;
+        const min = m.min ?? 1;
+        const max = m.max ?? 1;
+        const cancelable = !!m.can_cancel;
         const prompt = this.nextPrompt(m.player, "selectCard", `Select ${min === max ? min : `${min}–${max}`} card(s)`, [], { cards, min, max, cancelable });
         return {
           prompt,
@@ -469,6 +502,51 @@ export class DuelSession {
             if (r.type === "cancel" && cancelable) return { type: OcgResponseType.SELECT_CARD, indicies: null };
             if (r.type !== "cards") return null;
             return { type: OcgResponseType.SELECT_CARD, indicies: r.refs.map(Number) };
+          },
+        };
+      }
+      // Synchro/Xyz/Link material selection and other "pick until valid" choices.
+      // Unlike SELECT_CARD this is ITERATIVE: each response selects OR unselects a
+      // single card (by `index`), and the core re-prompts with refreshed lists
+      // until the selection is complete. `select_cards` are the addable candidates;
+      // `unselect_cards` are already-chosen (refs prefixed "u:" so the UI can show
+      // them as picked and let you take them back).
+      case OcgMessageType.SELECT_UNSELECT_CARD: {
+        const sc = m.select_cards ?? [];
+        const uc = m.unselect_cards ?? [];
+        const toCard = (c: (typeof sc)[number], ref: string): PromptCard => ({
+          ref,
+          code: c.code ?? null,
+          location: LOCATION_NAME[c.location] ?? String(c.location),
+          seq: c.sequence,
+          controller: c.controller as DuelPlayer,
+        });
+        const cards: PromptCard[] = [
+          ...uc.map((c, i) => toCard(c, `u:${i}`)),
+          ...sc.map((c, i) => toCard(c, `s:${i}`)),
+        ];
+        const opts: DuelOption[] = [];
+        if (m.can_finish) opts.push({ id: "__finish", label: "Finish" });
+        const title = uc.length > 0 ? `Select material(s) — ${uc.length} chosen` : "Select material(s)";
+        const prompt = this.nextPrompt(m.player, "selectUnselect", title, opts, {
+          cards,
+          min: m.min,
+          max: m.max,
+          cancelable: m.can_cancel,
+        });
+        return {
+          prompt,
+          resolve: (r) => {
+            if (r.type === "option" && r.id === "__finish") return { type: OcgResponseType.SELECT_UNSELECT_CARD, index: null };
+            if (r.type === "cancel") return { type: OcgResponseType.SELECT_UNSELECT_CARD, index: null };
+            if (r.type !== "cards" || r.refs.length === 0) return null;
+            const ref = r.refs[0]!;
+            const sep = ref.indexOf(":");
+            const kind = ref.slice(0, sep);
+            const i = Number(ref.slice(sep + 1));
+            // index < select_cards.length → select; else unselect at index-len.
+            const index = kind === "u" ? sc.length + i : i;
+            return { type: OcgResponseType.SELECT_UNSELECT_CARD, index };
           },
         };
       }
@@ -490,6 +568,42 @@ export class DuelSession {
         const opts: DuelOption[] = m.options.map((_o, i) => ({ id: String(i), label: `Option ${i + 1}` }));
         const prompt = this.nextPrompt(m.player, "option", "Choose an option", opts);
         return { prompt, resolve: (r) => (r.type === "option" ? { type: OcgResponseType.SELECT_OPTION, index: Number(r.id) } : null) };
+      }
+      case OcgMessageType.SELECT_TRIBUTE: {
+        const cards: PromptCard[] = m.selects.map((c, i) => ({
+          ref: String(i),
+          code: c.code ?? null,
+          location: LOCATION_NAME[c.location] ?? String(c.location),
+          seq: c.sequence,
+          controller: c.controller as DuelPlayer,
+        }));
+        const cancelable = !!m.can_cancel;
+        const prompt = this.nextPrompt(m.player, "selectCard", `Tribute ${m.min === m.max ? m.min : `${m.min}–${m.max}`} card(s)`, [], { cards, min: m.min, max: m.max, cancelable });
+        return {
+          prompt,
+          resolve: (r) => {
+            if (r.type === "cancel" && cancelable) return { type: OcgResponseType.SELECT_TRIBUTE, indicies: null };
+            if (r.type !== "cards") return null;
+            return { type: OcgResponseType.SELECT_TRIBUTE, indicies: r.refs.map(Number) };
+          },
+        };
+      }
+      case OcgMessageType.SELECT_SUM: {
+        // Pick from `selects` (the optional pool); the core auto-includes any
+        // `selects_must` and validates that the values reach `amount`.
+        const cards: PromptCard[] = m.selects.map((c, i) => ({
+          ref: String(i),
+          code: c.code ?? null,
+          location: LOCATION_NAME[c.location] ?? String(c.location),
+          seq: c.sequence,
+          controller: c.controller as DuelPlayer,
+        }));
+        const max = m.max || cards.length || 1;
+        const prompt = this.nextPrompt(m.player, "selectCard", `Select materials (sum to ${m.amount})`, [], { cards, min: m.min, max });
+        return {
+          prompt,
+          resolve: (r) => (r.type === "cards" ? { type: OcgResponseType.SELECT_SUM, indicies: r.refs.map(Number) } : null),
+        };
       }
       default:
         return null;
@@ -514,14 +628,26 @@ export class DuelSession {
       case OcgMessageType.SELECT_POSITION:
         return { type: OcgResponseType.SELECT_POSITION, position: OcgPosition.FACEUP_ATTACK };
       case OcgMessageType.SELECT_PLACE: {
-        for (let seq = 0; seq < 5; seq++) if ((m.field_mask & (1 << seq)) === 0) return { type: OcgResponseType.SELECT_PLACE, places: [{ player: m.player, location: OcgLocation.MZONE, sequence: seq }] };
+        for (let seq = 0; seq < 7; seq++) if ((m.field_mask & (1 << seq)) === 0) return { type: OcgResponseType.SELECT_PLACE, places: [{ player: m.player, location: OcgLocation.MZONE, sequence: seq }] };
         for (let seq = 0; seq < 5; seq++) if ((m.field_mask & (1 << (8 + seq))) === 0) return { type: OcgResponseType.SELECT_PLACE, places: [{ player: m.player, location: OcgLocation.SZONE, sequence: seq }] };
         return { type: OcgResponseType.SELECT_PLACE, places: [] };
       }
-      case OcgMessageType.SELECT_CARD:
-      case OcgMessageType.SELECT_UNSELECT_CARD: {
-        const min = (m as any).min ?? 1;
+      case OcgMessageType.SELECT_CARD: {
+        const min = m.min ?? 1;
         return { type: OcgResponseType.SELECT_CARD, indicies: Array.from({ length: Math.max(1, min) }, (_, i) => i) };
+      }
+      case OcgMessageType.SELECT_UNSELECT_CARD: {
+        // Iterative: select the first candidate, or finish when none remain.
+        if ((m.select_cards?.length ?? 0) > 0) return { type: OcgResponseType.SELECT_UNSELECT_CARD, index: 0 };
+        return { type: OcgResponseType.SELECT_UNSELECT_CARD, index: null };
+      }
+      case OcgMessageType.SELECT_TRIBUTE: {
+        const min = (m as any).min ?? 1;
+        return { type: OcgResponseType.SELECT_TRIBUTE, indicies: Array.from({ length: Math.max(1, min) }, (_, i) => i) };
+      }
+      case OcgMessageType.SELECT_SUM: {
+        const min = (m as any).min ?? 1;
+        return { type: OcgResponseType.SELECT_SUM, indicies: Array.from({ length: Math.max(1, min) }, (_, i) => i) };
       }
       default:
         return null;
@@ -530,8 +656,10 @@ export class DuelSession {
 
   // --- deck loading ---------------------------------------------------------
   private addDeck(team: 0 | 1, main: number[], extra: number[]): void {
+    // sequence 1 = add to the bottom, so the cards keep the order we pass in
+    // (we shuffle beforehand). sequence ≥2 would let the core reorder them.
     for (const code of main) {
-      this.core.duelNewCard(this.handle, { team, duelist: 0, code, controller: team, location: OcgLocation.DECK, sequence: 2, position: OcgPosition.FACEDOWN_DEFENSE });
+      this.core.duelNewCard(this.handle, { team, duelist: 0, code, controller: team, location: OcgLocation.DECK, sequence: 1, position: OcgPosition.FACEDOWN_DEFENSE });
     }
     for (const code of extra) {
       this.core.duelNewCard(this.handle, { team, duelist: 0, code, controller: team, location: OcgLocation.EXTRA, sequence: 0, position: OcgPosition.FACEDOWN_DEFENSE });

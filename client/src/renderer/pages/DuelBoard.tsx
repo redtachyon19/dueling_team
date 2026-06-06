@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { CardData, DuelCard, DuelOption, DuelPhase, DuelPrompt, DuelResponse, DuelState, DuelUpdate, PromptCard } from "@duel/shared";
 import cardBack from "../../../../assets/cards/sleeves/original_card_sleeve.png";
 import { CardViewer } from "./CardViewer.tsx";
 
 const EMPTY_SET: Set<string> = new Set();
+
+// Response windows (chain / yes-no / activate-effect) auto-decline after this
+// many seconds, matching the Shift ("No") keybind, so a duel can't stall waiting.
+const RESPONSE_SECS = 30;
 
 const PHASES: { key: DuelPhase; label: string }[] = [
   { key: "draw", label: "DP" },
@@ -20,7 +24,7 @@ const PHASES: { key: DuelPhase; label: string }[] = [
 // offers "Normal Summon" / "Set" / "Activate" per card), then auto-answers the
 // follow-up zone placement with the zone the card was dropped on.
 type Mods = { shift: boolean; meta: boolean; ctrl: boolean };
-type DragState = { seq: number; code: number | null; isMonster: boolean; x: number; y: number; valid: boolean; mods: Mods };
+type DragState = { seq: number; code: number | null; isMonster: boolean; x: number; y: number; valid: boolean; mods: Mods; hint: string };
 
 const readMods = (e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }): Mods =>
   ({ shift: e.shiftKey, meta: e.metaKey, ctrl: e.ctrlKey });
@@ -43,22 +47,27 @@ function gestureOption(opts: DuelOption[], isMonster: boolean, dropLoc: string |
   if (isMonster) {
     if (dropLoc !== "mzone") return undefined;
     if (mods.shift) return find("mset");
-    if (mods.meta || mods.ctrl) return find("activate"); // special summon, if the card offers one
-    return find("summon");
+    if (mods.meta || mods.ctrl) return find("spsummon"); // ⌘/Ctrl forces a Special Summon
+    // Plain drag: Normal Summon if possible, otherwise fall back to a Special
+    // Summon — so a monster that can ONLY be Special Summoned (its conditions
+    // are met) still plays with a simple drag onto the monster row.
+    return find("summon") ?? find("spsummon");
   }
   if (dropLoc !== "szone" && dropLoc !== "fzone") return undefined;
   if (mods.shift) return find("sset");
   return find("activate");
 }
 
-/** Label shown under the drag ghost for the current modifier state. */
-function dragHint(d: DragState): string {
-  if (d.isMonster) {
-    if (d.mods.shift) return "Set";
-    if (d.mods.meta || d.mods.ctrl) return "Special Summon";
-    return "Normal Summon";
+/** Label shown under the drag ghost — reflects the actual play this card+mods
+ *  will perform (e.g. "Special Summon" for a monster that can only be SS'd). */
+function dragHint(handOpts: DuelOption[], isMonster: boolean, mods: Mods): string {
+  const has = (prefix: string) => handOpts.some((o) => o.id.startsWith(prefix + ":"));
+  if (isMonster) {
+    if (mods.shift) return "Set";
+    if (mods.meta || mods.ctrl) return "Special Summon";
+    return has("summon") ? "Normal Summon" : has("spsummon") ? "Special Summon" : "Normal Summon";
   }
-  return d.mods.shift ? "Set" : "Activate";
+  return mods.shift ? "Set" : "Activate";
 }
 
 export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => void }): JSX.Element {
@@ -69,6 +78,33 @@ export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => vo
   const [banner, setBanner] = useState<{ id: number; text: string; tone: string } | null>(null);
   const bannerSeq = useRef(0);
   const [preview, setPreview] = useState<CardData | null>(null);
+  const [extraOpen, setExtraOpen] = useState(false); // browsing the local Extra Deck
+  const [viewer, setViewer] = useState<{ title: string; cards: DuelCard[] } | null>(null); // GY/banish browser
+
+  // Size the board zones to the ACTUAL play area (not a 100vh guess): the play
+  // region is a stable flex child, so measuring it and solving for --zone fits
+  // the 5 zone-rows + both hands exactly, on any window/DPI, without clipping.
+  const [zonePx, setZonePx] = useState(120);
+  const roRef = useRef<ResizeObserver | null>(null);
+  // Callback ref so measurement starts when the play element actually mounts —
+  // the board renders only AFTER the duel state loads, so a mount-effect would
+  // run too early (ref still null) and never measure.
+  const playRefCb = useCallback((el: HTMLDivElement | null) => {
+    roRef.current?.disconnect();
+    if (!el) return;
+    const measure = () => {
+      const P = el.clientHeight;
+      const W = el.clientWidth;
+      if (P <= 0 || W <= 0) return;
+      const byH = (P - 140) / 6.6; // 5 zone-rows + both hands + headers/gaps
+      const byW = (W - 48) / 9; // 9 columns + gaps
+      setZonePx(Math.max(56, Math.min(byW, byH, 176)));
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    roRef.current = ro;
+    measure();
+  }, []);
 
   // Full card data, kept in a ref so the (once-subscribed) update handler reads
   // the latest map even though it loads asynchronously; drives names + hover preview.
@@ -136,6 +172,26 @@ export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => vo
   }, [prompt?.id]);
   const targets = useMemo(() => new Set(placeTargets.keys()), [placeTargets]);
 
+  // Extra Deck special summons currently on offer (Fusion / Synchro / Xyz / Link
+  // / Pendulum). Keyed by card code so a clicked Extra Deck card maps to its
+  // summon option(s) — summonability is per card-code, so duplicate copies are
+  // equivalent. Only populated during an idle (Main Phase) decision; empty
+  // otherwise, so the Extra Deck stays view-only when you can't summon.
+  const extraSummon = useMemo(() => {
+    const m = new Map<number, DuelOption[]>();
+    if (prompt?.kind === "idle") {
+      for (const o of prompt.options) {
+        if (o.loc === "extra" && o.code != null) {
+          const arr = m.get(o.code);
+          if (arr) arr.push(o);
+          else m.set(o.code, [o]);
+        }
+      }
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompt?.id]);
+
   // A drag that picked a summon/set/activate is followed by a SELECT_PLACE
   // prompt; auto-answer it with the dropped zone (falling back to any open one)
   // so the whole play happens in one gesture. Clears once the turn returns to
@@ -173,8 +229,38 @@ export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => vo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prompt?.id]);
 
+  // Press G to open (toggle) your Graveyard, like clicking the GY pile. Works any
+  // time; ignores typing fields and modifier combos.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key !== "g" && e.key !== "G") return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      const me = state?.players[0];
+      if (!me) return;
+      e.preventDefault();
+      setViewer((v) => (v && v.title === "Your Graveyard" ? null : { title: "Your Graveyard", cards: me.grave }));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [state]);
+
   const onBoardClick = (e: ReactMouseEvent) => {
     if (suppressClickRef.current) { suppressClickRef.current = false; return; }
+    // Clicking the local Extra Deck opens its browser (works any time, no prompt needed).
+    if ((e.target as HTMLElement).closest('[data-extra="local"]')) { setExtraOpen(true); return; }
+    // Clicking a Graveyard / Banished pile (either player's — both are public)
+    // opens a read-only browser of its cards. Works any time, no prompt needed.
+    const pileEl = (e.target as HTMLElement).closest("[data-pile]") as HTMLElement | null;
+    if (pileEl && state) {
+      const kind = pileEl.dataset.pile; // "grave" | "banish"
+      const owner = (Number(pileEl.dataset.owner) || 0) as 0 | 1;
+      const cards = kind === "grave" ? state.players[owner].grave : state.players[owner].banished;
+      const whose = owner === 0 ? "Your" : "Opponent's";
+      setViewer({ title: `${whose} ${kind === "grave" ? "Graveyard" : "Banished"}`, cards });
+      return;
+    }
     if (!prompt) return;
     const el = (e.target as HTMLElement).closest("[data-loc]") as HTMLElement | null;
     if (prompt.kind === "idle" || prompt.kind === "battle") {
@@ -265,20 +351,26 @@ export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => vo
     const code = el.dataset.code ? Number(el.dataset.code) : null;
     const isMonster = code != null && /Monster/i.test(cardsRef.current.get(code)?.type ?? "");
     const start = { x: e.clientX, y: e.clientY };
-    dragRef.current = { seq, code, isMonster, x: start.x, y: start.y, valid: false, mods: readMods(e) };
+    // This card's available idle actions (Normal/Special Summon, Set, Activate),
+    // captured once — drives both the live "valid drop" highlight and the ghost
+    // label so the hint matches what the drop will actually do.
+    const handOpts = prompt?.kind === "idle" ? prompt.options.filter((o) => o.loc === "hand" && o.seq === seq) : [];
+    dragRef.current = { seq, code, isMonster, x: start.x, y: start.y, valid: false, mods: readMods(e), hint: dragHint(handOpts, isMonster, readMods(e)) };
     let active = false;
 
     const onMove = (ev: PointerEvent) => {
       const ds = dragRef.current;
       if (!ds) return;
+      const mods = readMods(ev);
       if (!active && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 5) {
-        dragRef.current = { ...ds, x: ev.clientX, y: ev.clientY, mods: readMods(ev) };
+        dragRef.current = { ...ds, x: ev.clientX, y: ev.clientY, mods };
         return; // not yet a drag — keep it clickable
       }
       active = true;
       const loc = zoneAtPoint(ev.clientX, ev.clientY).loc;
-      const valid = ds.isMonster ? loc === "mzone" : (loc === "szone" || loc === "fzone");
-      const next: DragState = { ...ds, x: ev.clientX, y: ev.clientY, valid, mods: readMods(ev) };
+      // Valid only when over a row this card+mods can actually play onto.
+      const valid = !!gestureOption(handOpts, ds.isMonster, loc, mods);
+      const next: DragState = { ...ds, x: ev.clientX, y: ev.clientY, valid, mods, hint: dragHint(handOpts, ds.isMonster, mods) };
       dragRef.current = next;
       setDrag(next);
     };
@@ -334,7 +426,7 @@ export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => vo
   const dragCls = drag ? (drag.isMonster ? " is-drag-mon" : " is-drag-st") : "";
 
   return (
-    <div className={`duelboard${dragCls}`} onMouseOver={onHover} onClick={onBoardClick} onPointerDown={onPointerDown}>
+    <div className={`duelboard${dragCls}`} style={{ "--zone": `${zonePx}px` } as CSSProperties} onMouseOver={onHover} onClick={onBoardClick} onPointerDown={onPointerDown}>
       {menu && (
         <CardMenu
           menu={menu}
@@ -347,7 +439,7 @@ export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => vo
           <div className={`ddrag__card${drag.valid ? " is-valid" : ""}`}>
             <CardArt code={drag.code} alt="" />
           </div>
-          <span className={`ddrag__hint${drag.valid ? " is-valid" : ""}`}>{dragHint(drag)}</span>
+          <span className={`ddrag__hint${drag.valid ? " is-valid" : ""}`}>{drag.hint}</span>
         </div>
       )}
       {press && (
@@ -381,20 +473,168 @@ export function DuelBoard({ deckId, onExit }: { deckId: string; onExit: () => vo
       <div className="duelboard__main">
         <CardViewer tile={preview ? { card: preview, imageId: preview.images[0] ?? preview.id } : null} />
 
-        <div className="duelboard__play">
+        <div className="duelboard__play" ref={playRefCb}>
           <Hand cards={opp.hand} nameOf={nameOf} actionable={EMPTY_SET} opponent />
 
           <div className="duelboard__field">
             {banner && <div key={banner.id} className={`dbanner dbanner--${banner.tone}`}>{banner.text}</div>}
             <PlayerSide who="Opponent" p={opp} flip active={state.turnPlayer === 1} nameOf={nameOf} actionable={EMPTY_SET} targets={EMPTY_SET} />
-            <PlayerSide who="You" p={me} active={state.turnPlayer === 0} nameOf={nameOf} local actionable={actionable} targets={targets} />
+            <ExtraMonsterZones cards={[me.monsters[5] ?? null, me.monsters[6] ?? null]} actionable={actionable} targets={targets} nameOf={nameOf} />
+            <PlayerSide who="You" p={me} active={state.turnPlayer === 0} nameOf={nameOf} local actionable={actionable} targets={targets} extraReady={extraSummon.size > 0} />
+            {state.over && (
+              <div className="dfield-over">
+                <div className="dfield-over__box">
+                  {state.winner === 0 ? "🏆 You win!" : state.winner === 1 ? "Defeat." : "Duel over."}
+                </div>
+              </div>
+            )}
           </div>
 
           <Hand cards={me.hand} nameOf={nameOf} actionable={actionable} />
         </div>
       </div>
 
-      <PromptOverlay prompt={prompt} over={state.over} winner={state.winner} nameOf={nameOf} respond={respond} />
+      {extraOpen && (
+        <ExtraDeckOverlay
+          cards={me.extra}
+          summonable={extraSummon}
+          nameOf={nameOf}
+          frameOf={(code) => cardsRef.current.get(code ?? -1)?.frameType}
+          onHover={onHover}
+          onClose={() => setExtraOpen(false)}
+          onSummon={(options, x, y) => {
+            if (!prompt) return;
+            setExtraOpen(false);
+            setMenu({ promptId: prompt.id, options, x, y });
+          }}
+        />
+      )}
+      {viewer && (
+        <CardListOverlay title={viewer.title} cards={viewer.cards} nameOf={nameOf} onHover={onHover} onClose={() => setViewer(null)} />
+      )}
+      <PromptOverlay prompt={prompt} nameOf={nameOf} respond={respond} />
+    </div>
+  );
+}
+
+/** The 2 shared Extra Monster Zones, shown as a centered row between the players. */
+function ExtraMonsterZones({ cards, actionable, targets, nameOf }: { cards: (DuelCard | null)[]; actionable: Set<string>; targets: Set<string>; nameOf: (c: number | null | undefined) => string }): JSX.Element {
+  return (
+    <div className="duelboard__emz">
+      {cards.map((c, idx) => {
+        const seq = 5 + idx;
+        const act = actionable.has(`mzone:${seq}`);
+        const target = targets.has(`mzone:${seq}`);
+        return (
+          <div
+            key={seq}
+            className={`dzone dzone--mon${act ? " is-actionable" : ""}${target ? " is-target" : ""}`}
+            title={c ? nameOf(c.code) : "Extra Monster Zone"}
+            data-code={c?.code ?? undefined}
+            data-loc="mzone"
+            data-seq={seq}
+          >
+            <CardSlot card={c} kind="mon" />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Read-only browser for a public pile (Graveyard / Banished, either player).
+ *  Hover previews each card in the side viewer; click outside or Close to dismiss. */
+function CardListOverlay({ title, cards, nameOf, onHover, onClose }: {
+  title: string;
+  cards: DuelCard[];
+  nameOf: (c: number | null | undefined) => string;
+  onHover: (e: ReactMouseEvent) => void;
+  onClose: () => void;
+}): JSX.Element {
+  return (
+    <div className="dprompt-overlay dprompt" onClick={onClose} onMouseOver={onHover}>
+      <div className="dprompt__title">{title} ({cards.length})</div>
+      <div className="dprompt__cards">
+        {cards.length === 0 && <span className="dhand__empty">— empty —</span>}
+        {cards.map((c, i) => (
+          <button key={i} className="dprompt__card" data-code={c.code ?? undefined} title={nameOf(c.code)} onClick={(e) => e.stopPropagation()}>
+            <CardArt code={c.code} alt={nameOf(c.code)} />
+          </button>
+        ))}
+      </div>
+      <div className="dprompt__actions">
+        <button className="btn" onClick={onClose}>Close</button>
+      </div>
+    </div>
+  );
+}
+
+/** Name the summon by the card's frame, so the action reads "Synchro Summon"
+ *  rather than a generic "Special Summon". Fusion/Synchro/Xyz/Link take priority
+ *  over the Pendulum variant (e.g. a Synchro Pendulum is a Synchro Summon). */
+function summonVerb(frameType: string | undefined): string {
+  const f = (frameType ?? "").toLowerCase();
+  if (f.includes("fusion")) return "Fusion Summon";
+  if (f.includes("synchro")) return "Synchro Summon";
+  if (f.includes("xyz")) return "Xyz Summon";
+  if (f.includes("link")) return "Link Summon";
+  if (f.includes("pendulum")) return "Pendulum Summon";
+  return "Special Summon";
+}
+
+/**
+ * Browse the local Extra Deck (face-up to its owner). Click the pile to open.
+ * When the Main-Phase prompt offers a summon for a card here (materials are on
+ * the field / requirements met), that card glows and is tagged with its summon
+ * type — clicking it opens the action menu to summon it, mirroring hand cards.
+ */
+function ExtraDeckOverlay({ cards, summonable, nameOf, frameOf, onHover, onClose, onSummon }: {
+  cards: DuelCard[];
+  summonable: Map<number, DuelOption[]>;
+  nameOf: (c: number | null | undefined) => string;
+  frameOf: (c: number | null | undefined) => string | undefined;
+  onHover: (e: ReactMouseEvent) => void;
+  onClose: () => void;
+  onSummon: (options: DuelOption[], x: number, y: number) => void;
+}): JSX.Element {
+  const anySummon = cards.some((c) => c.code != null && summonable.has(c.code));
+  return (
+    <div className="dprompt-overlay dprompt" onClick={onClose} onMouseOver={onHover}>
+      <div className="dprompt__title">
+        Extra Deck ({cards.length})
+        {anySummon && <span className="dprompt__hint">  ·  click a glowing card to summon</span>}
+      </div>
+      <div className="dprompt__cards">
+        {cards.length === 0 && <span className="dhand__empty">— empty —</span>}
+        {cards.map((c, i) => {
+          const opts = c.code != null ? summonable.get(c.code) : undefined;
+          const canSummon = !!opts && opts.length > 0;
+          const verb = canSummon ? summonVerb(frameOf(c.code)) : "";
+          return (
+            <button
+              key={i}
+              className={`dprompt__card${canSummon ? " is-summonable" : ""}`}
+              data-code={c.code ?? undefined}
+              title={canSummon ? `${nameOf(c.code)} — ${verb}` : nameOf(c.code)}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!canSummon || !opts) return;
+                // Relabel a lone option with its summon type; keep originals when
+                // a card offers more than one distinct summon.
+                const first = opts[0];
+                const display = opts.length === 1 && first ? [{ ...first, label: verb }] : opts;
+                onSummon(display, e.clientX, e.clientY);
+              }}
+            >
+              <CardArt code={c.code} alt={nameOf(c.code)} />
+              {canSummon && <span className="dprompt__cardtag">{verb}</span>}
+            </button>
+          );
+        })}
+      </div>
+      <div className="dprompt__actions">
+        <button className="btn" onClick={onClose}>Close</button>
+      </div>
     </div>
   );
 }
@@ -409,13 +649,14 @@ function PhaseTrack({ phase }: { phase: DuelPhase }): JSX.Element {
   );
 }
 
-function PlayerSide({ who, p, flip, active, local = false, actionable, targets, nameOf }: { who: string; p: DuelState["players"][number]; flip?: boolean; active?: boolean; local?: boolean; actionable: Set<string>; targets: Set<string>; nameOf: (c: number | null | undefined) => string }): JSX.Element {
+function PlayerSide({ who, p, flip, active, local = false, actionable, targets, nameOf, extraReady = false }: { who: string; p: DuelState["players"][number]; flip?: boolean; active?: boolean; local?: boolean; actionable: Set<string>; targets: Set<string>; nameOf: (c: number | null | undefined) => string; extraReady?: boolean }): JSX.Element {
   // Monster row: Field Spell (left), 5 monsters, Banished, then Graveyard as the
   // outermost flank. Spell/trap row: Extra Deck (left), 5 S/T, Deck, spacer.
   // The opponent's side is a true 180° flip: rows in reverse order (S/T on the
   // back) AND mirrored left-right (row-reverse), so their Graveyard lines up
   // over our Field Spell zone.
   const rowCls = `duelboard__row${flip ? " duelboard__row--rev" : ""}`;
+  const owner = local ? 0 : 1; // which player's public piles these are
   // 9 columns: a leading spacer (col 0), the 7 main columns, then Banished (col 8,
   // right of the Graveyard). The opponent's rows are row-reversed, so their
   // Banished ends up on the left and their Graveyard lines up over our Field.
@@ -423,15 +664,15 @@ function PlayerSide({ who, p, flip, active, local = false, actionable, targets, 
     <div className={rowCls}>
       <div className="dzone-spacer" aria-hidden="true" />
       <FieldZone card={p.field} nameOf={nameOf} local={local} actionable={actionable} />
-      <ZoneCells kind="mon" cards={p.monsters} nameOf={nameOf} local={local} actionable={actionable} targets={targets} />
-      <Pile kind="grave" label="Graveyard" count={p.graveCount} faceCode={p.graveTop} />
-      <Pile kind="banish" label="Banished Zone" count={p.banishCount} />
+      <ZoneCells kind="mon" cards={p.monsters.slice(0, 5)} nameOf={nameOf} local={local} actionable={actionable} targets={targets} />
+      <Pile kind="grave" label="Graveyard" count={p.graveCount} faceCode={p.graveTop} owner={owner} />
+      <Pile kind="banish" label="Banished Zone" count={p.banishCount} owner={owner} />
     </div>
   );
   const spellRow = (
     <div className={rowCls}>
       <div className="dzone-spacer" aria-hidden="true" />
-      <Pile kind="extra" label="Extra Deck" count={p.extraCount} />
+      <Pile kind="extra" label="Extra Deck" count={p.extraCount} extraLocal={local} summonReady={local && extraReady} />
       <ZoneCells kind="st" cards={p.spells} nameOf={nameOf} local={local} actionable={actionable} targets={targets} />
       <Pile kind="deck" label="Deck" count={p.deckCount} deckLocal={local} />
       <div className="dzone-spacer" aria-hidden="true" />
@@ -489,15 +730,25 @@ function FieldZone({ card, local, actionable, nameOf }: { card: DuelCard | null;
 
 /** A face-down pile (deck / extra / graveyard / banished). Deck & Extra hide
  *  their count; Graveyard & Banished still show theirs. */
-function Pile({ kind, label, count, deckLocal, faceCode }: { kind: string; label: string; count: number; deckLocal?: boolean; faceCode?: number | null }): JSX.Element {
+function Pile({ kind, label, count, deckLocal, extraLocal, faceCode, summonReady, owner }: { kind: string; label: string; count: number; deckLocal?: boolean; extraLocal?: boolean; faceCode?: number | null; summonReady?: boolean; owner?: number }): JSX.Element {
   // The graveyard shows its top card face-up and hides its count; the other
   // piles show a face-down card back (deck/extra also hide their count).
   const showCount = count > 0 && kind !== "deck" && kind !== "extra" && kind !== "grave";
+  // GY / banished (either player) are public — click to browse when non-empty.
+  const viewable = (kind === "grave" || kind === "banish") && count > 0 && owner != null;
+  const title =
+    kind === "deck" && deckLocal ? `${label}: ${count} — hold to surrender`
+    : kind === "extra" && extraLocal ? `${label}: ${count} — click to ${summonReady ? "summon / view" : "view"}`
+    : viewable ? `${label}: ${count} — click to view`
+    : `${label}: ${count}`;
   return (
     <div
-      className={`dzone dzone--pile dzone--${kind}`}
-      title={kind === "deck" && deckLocal ? `${label}: ${count} — hold to surrender` : `${label}: ${count}`}
+      className={`dzone dzone--pile dzone--${kind}${(kind === "extra" && extraLocal) || viewable ? " is-browsable" : ""}${summonReady ? " is-summon-ready" : ""}`}
+      title={title}
       data-deck={kind === "deck" && deckLocal ? "local" : undefined}
+      data-extra={kind === "extra" && extraLocal ? "local" : undefined}
+      data-pile={viewable ? kind : undefined}
+      data-owner={viewable ? owner : undefined}
     >
       <div className={`dslot dslot--${kind}`}>
         {faceCode != null
@@ -595,11 +846,9 @@ function CardMenu({
  * this renders nothing for those (no persistent bottom panel).
  */
 function PromptOverlay({
-  prompt, over, winner, nameOf, respond,
+  prompt, nameOf, respond,
 }: {
   prompt: DuelPrompt | null;
-  over: boolean;
-  winner: number | null;
   nameOf: (c: number | null | undefined) => string;
   respond: (r: DuelResponse) => void;
 }): JSX.Element | null {
@@ -607,13 +856,33 @@ function PromptOverlay({
   const promptId = prompt?.id ?? -1;
   useEffect(() => setSel([]), [promptId]);
 
-  if (over) {
-    return (
-      <div className="dprompt-overlay dprompt dprompt--over">
-        <div className="dprompt__title">{winner === 0 ? "🏆 You win!" : winner === 1 ? "Defeat." : "Duel over."}</div>
-      </div>
-    );
-  }
+  // 30s response timer for quick-effect windows (chain / yes-no / activate-effect).
+  // On expiry it auto-declines (the "No"/"No Response" choice — same as the Shift
+  // keybind in DuelBoard), so the duel never stalls on a response window.
+  const isResponse = prompt != null && (prompt.kind === "selectChain" || prompt.kind === "yesno" || prompt.kind === "effectyn");
+  const [secsLeft, setSecsLeft] = useState(RESPONSE_SECS);
+  useEffect(() => {
+    if (!isResponse || !prompt) return;
+    setSecsLeft(RESPONSE_SECS);
+    const start = performance.now();
+    const tick = setInterval(() => {
+      const left = RESPONSE_SECS - (performance.now() - start) / 1000;
+      if (left <= 0) {
+        clearInterval(tick);
+        setSecsLeft(0);
+        const decline = prompt.options.find((o) => o.id === "no" || o.id === "pass")?.id ?? prompt.options[0]?.id;
+        if (decline != null) respond({ promptId: prompt.id, type: "option", id: decline });
+        else respond({ promptId: prompt.id, type: "cancel" });
+      } else {
+        setSecsLeft(left);
+      }
+    }, 100);
+    return () => clearInterval(tick);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promptId, isResponse]);
+
+  // The game-over result is rendered on the duel field itself (see DuelBoard),
+  // so it stays centered on the field rather than the whole window.
   // Nothing floating for idle / battle (top bar) or placement (board click).
   if (!prompt || prompt.kind === "idle" || prompt.kind === "battle" || prompt.kind === "selectPlace") return null;
 
@@ -651,10 +920,58 @@ function PromptOverlay({
     );
   }
 
+  // Synchro/Xyz/Link materials: pick one card at a time (the core re-prompts
+  // after each pick). Already-chosen cards (ref "u:") show highlighted and can
+  // be clicked again to take them back.
+  if (prompt.kind === "selectUnselect") {
+    const cards = prompt.cards ?? [];
+    const finish = prompt.options.find((o) => o.id === "__finish");
+    return (
+      <div className="dprompt-overlay dprompt">
+        <div className="dprompt__title">{prompt.title}</div>
+        <div className="dprompt__cards">
+          {cards.map((c: PromptCard) => (
+            <button
+              key={c.ref}
+              className={`dprompt__card${c.ref.startsWith("u:") ? " is-sel" : ""}`}
+              onClick={() => respond({ promptId: prompt.id, type: "cards", refs: [c.ref] })}
+              title={`${nameOf(c.code)} (${c.location})`}
+            >
+              <CardArt code={c.code} alt={nameOf(c.code)} />
+            </button>
+          ))}
+        </div>
+        <div className="dprompt__actions">
+          {finish && (
+            <button className="btn btn--primary" onClick={() => respond({ promptId: prompt.id, type: "option", id: finish.id })}>
+              Finish
+            </button>
+          )}
+          {prompt.cancelable && (
+            <button className="btn" onClick={() => respond({ promptId: prompt.id, type: "cancel" })}>Cancel</button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // position / chain / yes-no / option / effectyn
   return (
     <div className="dprompt-overlay dprompt">
-      <div className="dprompt__title">{prompt.title}</div>
+      <div className="dprompt__title">
+        {prompt.title}
+        {isResponse && (
+          <span className={`dprompt__timer${secsLeft <= 5 ? " is-urgent" : ""}`}> · {Math.ceil(secsLeft)}s</span>
+        )}
+      </div>
+      {isResponse && (
+        <div className="dprompt__timerbar">
+          <div
+            className={`dprompt__timerbar-fill${secsLeft <= 5 ? " is-urgent" : ""}`}
+            style={{ width: `${Math.max(0, (secsLeft / RESPONSE_SECS) * 100)}%` }}
+          />
+        </div>
+      )}
       <div className="dprompt__opts">
         {prompt.options.map((o) => (
           <button
