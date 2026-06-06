@@ -678,13 +678,18 @@ function PlayerSide({ who, p, flip, active, local = false, actionable, targets, 
       <div className="dzone-spacer" aria-hidden="true" />
     </div>
   );
+  const header = (
+    <header className="duelboard__sidehead">
+      <span className="duelboard__who">{who}</span>
+      <AnimatedLP value={p.lp} />
+    </header>
+  );
+  // Opponent's header sits on top; the local player's header sits at the bottom
+  // (near their hand). This keeps the two monster rows meeting directly in the
+  // middle with no info bar wedged between the fields.
   return (
     <section className={`duelboard__side${active ? " is-active" : ""}`}>
-      <header className="duelboard__sidehead">
-        <span className="duelboard__who">{who}</span>
-        <AnimatedLP value={p.lp} />
-      </header>
-      {flip ? (<>{spellRow}{monsterRow}</>) : (<>{monsterRow}{spellRow}</>)}
+      {flip ? (<>{header}{spellRow}{monsterRow}</>) : (<>{monsterRow}{spellRow}{header}</>)}
     </section>
   );
 }
