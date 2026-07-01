@@ -17,15 +17,25 @@
     "import:genesys": "tsx scripts/update-genesys.ts",
     "import:genesys:history": "tsx scripts/import-genesys-history.ts",
     "import:ocg": "tsx scripts/import-ocg.ts",
+    "check:scripts": "tsx scripts/check-script-coverage.ts",
+    "verify:script": "tsx scripts/verify-script.mts",
+    "encode:card": "tsx scripts/card-encoder.mts",
+    "rag:preview": "tsx scripts/rag-corpus.mts",
+    "gen:script": "tsx scripts/generate-script.mts",
+    "refresh": "pnpm import:cards && pnpm import:ocg && pnpm check:scripts",
     "build:images": "tsx scripts/build-image-pack.ts",
     "build:set-images": "tsx scripts/build-set-images.ts",
     "fill:set": "tsx scripts/fill-set.ts",
+    "train:ai": "tsx scripts/train-ai.mts",
+    "verify:search": "tsx scripts/verify-search.mts",
+    "classify:roles": "tsx scripts/classify-card-roles.mts",
     "typecheck:scripts": "tsc -p scripts/tsconfig.json"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.109.0",
     "@types/node": "^20.12.0",
-    "typescript": "^5.4.0",
     "tsx": "^4.7.0",
+    "typescript": "^5.4.0",
     "vitest": "^1.6.0"
   }
 }

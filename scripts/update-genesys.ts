@@ -29,7 +29,7 @@ import { PATHS, GENESYS_API, fetchJson, readJson, writeJson, exists, ensureDir, 
 
 // Effective date of the current list (latest published Genesys update). Bump
 // this when Konami publishes a new list so a new dated snapshot is written.
-const EFFECTIVE_DATE = "2026-04-30";
+const EFFECTIVE_DATE = "2026-06-22";
 // Genesys deck point cap (Konami's standard). Adjust if a revision changes it.
 const POINT_CAP = 100;
 const SOURCE = "yugiohgenesysbuilder.com/api/cards";

@@ -4,15 +4,24 @@
 // at runtime. Manual only; the running app reads the output from assets/ and
 // never hits the network.
 //
-//   pnpm import:ocg
+//   pnpm import:ocg                 # newest master of both upstreams
+//   pnpm import:ocg --ref=<sha|tag> # reproduce/pin a specific version
 //
 // Outputs (under assets/ocg/, gitignored-but-tracked like the rest of assets/):
 //   script/*.lua        — ProjectIgnis CardScripts (constant/utility + c<code>.lua)
 //   carddata.json       — code → OcgCardData, decoded from ProjectIgnis BabelCDB
+//   manifest.json       — provenance: the exact upstream commit SHAs + counts
 //
 // The Lua scripts are read by the core's scriptReader; carddata.json backs the
 // cardReader, so no SQLite dependency ships at runtime — the .cdb files are
 // decoded here with the sqlite3 CLI.
+//
+// PROVENANCE / REPRODUCIBILITY: each run resolves the requested ref (default the
+// upstreams' `master`) to a concrete commit, downloads exactly that commit, and
+// records it in manifest.json. To rebuild the identical engine data later, pass
+// the SHA from the manifest: `pnpm import:ocg --ref=<sha>`. This is what keeps
+// "what scripts do we have?" answerable — pair it with `pnpm check:scripts`,
+// which reports any db.json card the resulting engine data can't represent.
 
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readdirSync, copyFileSync, readFileSync } from "node:fs";
@@ -23,8 +32,31 @@ import { ASSETS, ensureDir, writeJson, REPO_ROOT } from "./_lib.ts";
 const OCG = join(ASSETS, "ocg");
 const SCRIPT_DIR = join(OCG, "script");
 
-const SCRIPTS_TARBALL = "https://codeload.github.com/ProjectIgnis/CardScripts/tar.gz/refs/heads/master";
-const CDB_TARBALL = "https://codeload.github.com/ProjectIgnis/BabelCDB/tar.gz/refs/heads/master";
+const SCRIPTS_REPO = "ProjectIgnis/CardScripts";
+const CDB_REPO = "ProjectIgnis/BabelCDB";
+
+/** Upstream ref to import (branch, tag, or commit SHA). Default: master. */
+const REF = (() => {
+  const arg = process.argv.find((a) => a.startsWith("--ref="));
+  return arg ? arg.slice("--ref=".length) : process.env.OCG_REF || "master";
+})();
+
+const UA = "dueling-team/0.0 (build-time importer)";
+
+/** Resolve a ref to its concrete commit SHA via the GitHub API (best-effort —
+ *  returns null on rate-limit/offline so the import still proceeds by ref). */
+async function resolveCommit(repo: string, ref: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repo}/commits/${ref}`, {
+      headers: { "User-Agent": UA, Accept: "application/vnd.github.sha" },
+    });
+    if (!res.ok) return null;
+    const sha = (await res.text()).trim();
+    return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+  } catch {
+    return null;
+  }
+}
 
 // EDOPro type bits we need for decoding the cdb `datas` table.
 const TYPE_PENDULUM = 0x1000000;
@@ -34,11 +66,13 @@ function sh(cmd: string, args: string[], cwd?: string): void {
   execFileSync(cmd, args, { cwd, stdio: "inherit" });
 }
 
-/** Download a github tarball and extract it into a fresh temp dir; return the extracted root. */
-function fetchTarball(url: string, label: string): string {
+/** Download a github repo tarball at `ref` and extract it into a fresh temp dir;
+ *  return the extracted root. codeload accepts a branch, tag, or commit SHA. */
+function fetchTarball(repo: string, ref: string, label: string): string {
+  const url = `https://codeload.github.com/${repo}/tar.gz/${ref}`;
   const dir = mkdtempSync(join(tmpdir(), `ocg-${label}-`));
   const tgz = join(dir, "src.tar.gz");
-  console.log(`→ downloading ${label} …`);
+  console.log(`→ downloading ${label} (${repo}@${ref}) …`);
   sh("curl", ["-fsSL", "-o", tgz, url]);
   console.log(`→ extracting ${label} …`);
   sh("tar", ["xzf", tgz, "-C", dir]);
@@ -124,8 +158,19 @@ function readCdb(file: string): OcgCardDataJson[] {
 async function main() {
   await ensureDir(SCRIPT_DIR);
 
+  // Resolve the requested ref to concrete commits for both repos, then download
+  // exactly those commits so the manifest's SHA matches the imported tree.
+  console.log(`→ resolving ${REF} …`);
+  const scriptsCommit = await resolveCommit(SCRIPTS_REPO, REF);
+  const cdbCommit = await resolveCommit(CDB_REPO, REF);
+  const scriptsRef = scriptsCommit ?? REF;
+  const cdbRef = cdbCommit ?? REF;
+  if (!scriptsCommit || !cdbCommit) {
+    console.warn("  ! could not resolve commit SHAs (rate-limit/offline) — importing by ref, manifest SHA may be null");
+  }
+
   // --- 1. Lua scripts -------------------------------------------------------
-  const scriptsRoot = fetchTarball(SCRIPTS_TARBALL, "scripts");
+  const scriptsRoot = fetchTarball(SCRIPTS_REPO, scriptsRef, "scripts");
   const luaFiles = collectLua(scriptsRoot);
   let copied = 0;
   for (const f of luaFiles) {
@@ -143,7 +188,7 @@ async function main() {
   }
 
   // --- 2. Card data from BabelCDB ------------------------------------------
-  const cdbRoot = fetchTarball(CDB_TARBALL, "cdb");
+  const cdbRoot = fetchTarball(CDB_REPO, cdbRef, "cdb");
   const cdbs = collectCdb(cdbRoot);
   console.log(`→ decoding ${cdbs.length} .cdb files …`);
   const byCode = new Map<number, OcgCardDataJson>();
@@ -163,7 +208,17 @@ async function main() {
   for (const [code, data] of byCode) carddata[code] = data;
   await writeJson(join(OCG, "carddata.json"), carddata);
   console.log(`✓ ${byCode.size} cards → ${join(OCG, "carddata.json")}`);
-  console.log(`\nDone. assets/ocg ready (relative to ${REPO_ROOT}).`);
+
+  // --- 3. Provenance manifest ----------------------------------------------
+  await writeJson(join(OCG, "manifest.json"), {
+    _comment: "Generated by scripts/import-ocg.ts. Records the exact upstream this engine data came from. Reproduce with `pnpm import:ocg --ref=<scriptsCommit>`.",
+    requestedRef: REF,
+    fetchedAt: new Date().toISOString(),
+    scripts: { repo: SCRIPTS_REPO, commit: scriptsCommit, fileCount: copied },
+    carddata: { repo: CDB_REPO, commit: cdbCommit, cardCount: byCode.size },
+  });
+  console.log(`✓ provenance → ${join(OCG, "manifest.json")}  (scripts ${scriptsCommit?.slice(0, 7) ?? "?"}, cdb ${cdbCommit?.slice(0, 7) ?? "?"})`);
+  console.log(`\nDone. assets/ocg ready (relative to ${REPO_ROOT}). Next: \`pnpm check:scripts\`.`);
 }
 
 main().catch((e) => {

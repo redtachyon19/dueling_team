@@ -15,6 +15,7 @@
     "@duel/ai": "workspace:*",
     "@duel/engine": "workspace:*",
     "@duel/local-backend": "workspace:*",
+    "@duel/relay-server": "workspace:*",
     "@duel/shared": "workspace:*",
     "@duel/ui": "workspace:*",
     "@n1xx1/ocgcore-wasm": "npm:@jsr/n1xx1__ocgcore-wasm@^0.1.3",

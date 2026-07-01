@@ -3,7 +3,7 @@
 // Pure deck-building rules: which zone a card belongs to, copy limits, and
 // validation. No React, no I/O — unit-testable.
 
-import type { CardData, Deck, BanlistRevision, BanStatus, GenesysRevision } from "@duel/shared";
+import type { CardData, Deck, BanlistRevision, BanStatus, GenesysRevision, DuelFormat } from "@duel/shared";
 
 export type Zone = "main" | "extra" | "side";
 
@@ -165,6 +165,77 @@ export function validateDeck(deck: Deck): DeckIssue[] {
     issues.push({ level: "error", message: `Extra deck has ${deck.extra.length} (max ${LIMITS.extraMax})` });
   if (deck.side.length > LIMITS.sideMax)
     issues.push({ level: "error", message: `Side deck has ${deck.side.length} (max ${LIMITS.sideMax})` });
+  return issues;
+}
+
+/** Inputs for format legality: card data + the active banlist / Genesys list. */
+export interface FormatLegalityCtx {
+  cards: Map<number, CardData>;
+  /** Active banlist (Advanced); null = no list loaded (copy cap falls back to 3). */
+  banlist: BanlistLookup | null;
+  /** Active Genesys list (Genesys); null = no list loaded (no points cap). */
+  genesys: GenesysLookup | null;
+}
+
+/** Render a name list, truncated so a long list stays readable. */
+function nameList(names: string[]): string {
+  return names.length <= 3 ? names.join(", ") : `${names.slice(0, 3).join(", ")} +${names.length - 3} more`;
+}
+
+/**
+ * Whether a deck is legal to PLAY in the given format. Stricter than
+ * {@link validateDeck}: size violations (incl. an undersized Main) are errors,
+ * not warnings, because you can't legally duel with an illegal deck.
+ *
+ * - Advanced: enforces banlist copy caps (Forbidden 0 / Limited 1 / Semi 2),
+ *   else the standard 3-copy rule.
+ * - Genesys: bans Link & Pendulum monsters (its pre-Link pool) and enforces the
+ *   points cap; copies follow the standard 3-copy rule.
+ */
+export function validateDeckForFormat(deck: Deck, format: DuelFormat, ctx: FormatLegalityCtx): DeckIssue[] {
+  const { cards, banlist, genesys } = ctx;
+  const issues: DeckIssue[] = [];
+  const nameOf = (id: number) => cards.get(id)?.name ?? `#${id}`;
+
+  // Deck-size rules (all errors here — an undersized deck can't be played).
+  if (deck.main.length < LIMITS.mainMin) issues.push({ level: "error", message: `Main deck has ${deck.main.length} cards (min ${LIMITS.mainMin})` });
+  if (deck.main.length > LIMITS.mainMax) issues.push({ level: "error", message: `Main deck has ${deck.main.length} cards (max ${LIMITS.mainMax})` });
+  if (deck.extra.length > LIMITS.extraMax) issues.push({ level: "error", message: `Extra deck has ${deck.extra.length} cards (max ${LIMITS.extraMax})` });
+  if (deck.side.length > LIMITS.sideMax) issues.push({ level: "error", message: `Side deck has ${deck.side.length} cards (max ${LIMITS.sideMax})` });
+
+  const distinct = [...new Set<number>([...deck.main, ...deck.extra, ...deck.side])];
+
+  if (format === "genesys") {
+    const links: string[] = [];
+    const pendulums: string[] = [];
+    for (const id of distinct) {
+      const n = copiesOf(deck, id);
+      if (n > LIMITS.copies) issues.push({ level: "error", message: `${nameOf(id)}: ${n} copies (max ${LIMITS.copies})` });
+      const frame = cards.get(id)?.frameType ?? "";
+      if (frame.includes("link")) links.push(nameOf(id));
+      else if (frame.includes("pendulum")) pendulums.push(nameOf(id));
+    }
+    if (links.length) issues.push({ level: "error", message: `Link monsters aren't allowed in Genesys: ${nameList(links)}` });
+    if (pendulums.length) issues.push({ level: "error", message: `Pendulum monsters aren't allowed in Genesys: ${nameList(pendulums)}` });
+    if (genesys?.pointCap != null) {
+      const pts = deckGenesysPoints(deck, genesys);
+      if (pts > genesys.pointCap) issues.push({ level: "error", message: `Genesys points: ${pts} / ${genesys.pointCap} — over the cap` });
+    }
+  } else {
+    // Advanced — banlist copy caps.
+    for (const id of distinct) {
+      const n = copiesOf(deck, id);
+      const card = cards.get(id);
+      const status = card ? banStatusOf(card, banlist) : "Unlimited";
+      const cap = status === "Forbidden" ? 0 : status === "Limited" ? 1 : status === "Semi-Limited" ? 2 : LIMITS.copies;
+      if (n > cap) {
+        issues.push({
+          level: "error",
+          message: status === "Forbidden" ? `${nameOf(id)} is Forbidden` : `${nameOf(id)}: ${n} copies (max ${cap} — ${status})`,
+        });
+      }
+    }
+  }
   return issues;
 }
 

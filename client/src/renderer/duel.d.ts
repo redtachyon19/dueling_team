@@ -15,6 +15,10 @@ import type {
   DuelStartResult,
   DuelResponse,
   DuelUpdate,
+  NetHostOptions,
+  NetJoinOptions,
+  NetResult,
+  NetStatus,
 } from "@duel/shared";
 
 export interface DuelBridge {
@@ -59,6 +63,13 @@ export interface DuelBridge {
     surrender(): Promise<void>;
     end(): Promise<void>;
     onUpdate(cb: (u: DuelUpdate) => void): () => void;
+  };
+  net: {
+    host(opts: NetHostOptions): Promise<NetResult>;
+    join(opts: NetJoinOptions): Promise<NetResult>;
+    leave(): Promise<void>;
+    ready(): Promise<void>;
+    onStatus(cb: (s: NetStatus) => void): () => void;
   };
 }
 

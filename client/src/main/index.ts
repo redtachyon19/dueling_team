@@ -7,7 +7,12 @@ import { randomBytes } from "node:crypto";
 import type { Deck } from "@duel/shared";
 import { listDecks, loadDeck, saveDeck, deleteDeck } from "@duel/local-backend";
 import { DuelSession } from "./duel/session.ts";
-import type { DuelResponse, DuelStartOptions, DuelStartResult, DuelUpdate } from "@duel/shared";
+import { NetClient } from "./net/client.ts";
+import { startRelay, type RelayHandle } from "@duel/relay-server";
+import type {
+  DuelResponse, DuelStartOptions, DuelStartResult, DuelUpdate,
+  NetHostOptions, NetJoinOptions, NetStatus, NetResult,
+} from "@duel/shared";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -306,13 +311,18 @@ ipcMain.handle("match:start", async (_e, opts: DuelStartOptions): Promise<DuelSt
   const deck = await loadDeck(decksDir(), opts.deckId);
   if (!deck) return { ok: false, error: "deck not found" };
 
+  // Optional custom deck for the AI opponent. If one was explicitly requested but
+  // can't be loaded (deleted/corrupt id), fail loudly rather than silently
+  // dueling the built-in deck — mirroring the player-deck handling above.
+  const aiDeck = opts.aiDeckId ? await loadDeck(decksDir(), opts.aiDeckId) : null;
+  if (opts.aiDeckId && !aiDeck) return { ok: false, error: "AI deck not found" };
+
   const send = (u: DuelUpdate) => mainWindow?.webContents.send("match:update", u);
   const startDirs = [__dirname, app.getAppPath()];
   const session = new DuelSession(send, startDirs);
   duelSession = session;
 
-  duelSeed = (duelSeed * 6364136223846793005n + 1442695040888963407n) & 0xffffffffffffffffn;
-  const res = await session.start({ main: deck.main, extra: deck.extra }, duelSeed, opts.goldfish ?? true);
+  const res = await session.start({ main: deck.main, extra: deck.extra }, nextSeed(opts.seed), opts.goldfish ?? true, opts.format ?? "advanced", opts.opponent ?? "goldfish", opts.difficulty ?? "normal", aiDeck ? { main: aiDeck.main, extra: aiDeck.extra } : null);
   if (!res.ok) {
     duelSession = null;
     return { ok: false, error: res.error ?? "failed to start duel", unsupported: res.unsupported };
@@ -321,16 +331,182 @@ ipcMain.handle("match:start", async (_e, opts: DuelStartOptions): Promise<DuelSt
 });
 
 ipcMain.handle("match:respond", (_e, r: DuelResponse) => {
-  duelSession?.respond(r);
+  // As a guest we have no local session; forward the answer to the host.
+  if (netRole === "guest") netClient?.send({ t: "response", response: r });
+  else duelSession?.respond(r);
 });
 
 ipcMain.handle("match:surrender", () => {
-  duelSession?.surrender();
+  if (netRole === "guest") netClient?.send({ t: "surrender" });
+  else duelSession?.surrender(); // host: surrender() also notifies the guest
 });
 
 ipcMain.handle("match:end", () => {
+  if (netRole) teardownNet();
+  else { duelSession?.end(); duelSession = null; }
+});
+
+// --- online play (friends-only relay) --------------------------------------
+let netClient: NetClient | null = null;
+let netRole: "host" | "guest" | null = null;
+// An in-process relay the host spins up for local play, so online hosting works
+// without a separately-launched relay. Started lazily on the first local host,
+// then kept alive and reused for the app's lifetime; closed on quit.
+let embeddedRelay: RelayHandle | null = null;
+
+const netStatus = (s: NetStatus) => mainWindow?.webContents.send("net:status", s);
+// Remember the latest board update. A networked board only mounts AFTER the
+// "playing" status flips the view, by which point the opening update was already
+// sent (and missed); it calls net:ready once subscribed to pull the current state.
+let lastUpdate: DuelUpdate | null = null;
+const matchUpdate = (u: DuelUpdate) => { lastUpdate = u; mainWindow?.webContents.send("match:update", u); };
+
+/** A user-supplied seed makes the shuffle reproducible; otherwise advance the
+ *  per-launch LCG so each duel deals a fresh deck. */
+function nextSeed(seedStr?: string): bigint {
+  if (seedStr != null && /^\d+$/.test(seedStr.trim())) {
+    let s = BigInt(seedStr.trim()) & 0xffffffffffffffffn;
+    if (s === 0n) s = 1n;
+    return s;
+  }
+  duelSeed = (duelSeed * 6364136223846793005n + 1442695040888963407n) & 0xffffffffffffffffn;
+  return duelSeed;
+}
+
+function teardownNet(): void {
+  netClient?.close();
+  netClient = null;
+  netRole = null;
   duelSession?.end();
   duelSession = null;
+  lastUpdate = null;
+}
+
+/** True when the relay address points at this machine, so the host can run an
+ *  in-process relay instead of needing a separately-launched one. */
+function isLocalRelay(addr: string): boolean {
+  const a = addr.trim();
+  return a === "" || /^(127\.0\.0\.1|localhost|::1|0\.0\.0\.0)$/i.test(a);
+}
+
+/** Ensure a relay is listening when hosting locally. Starts an in-process relay
+ *  the first time (bound to 0.0.0.0 so remote guests can still reach this
+ *  machine), then reuses it. If the port is already taken — e.g. a manually-run
+ *  relay — we leave that one in place and just connect to it. */
+async function ensureEmbeddedRelay(addr: string, port: number): Promise<void> {
+  if (embeddedRelay || !isLocalRelay(addr)) return;
+  try {
+    embeddedRelay = await startRelay(port);
+  } catch {
+    // EADDRINUSE (a relay is already up) or any bind failure: fall through and
+    // let connect() succeed against the existing relay or report a clear error.
+    embeddedRelay = null;
+  }
+}
+
+/** Turn a raw socket error into actionable guidance for the lobby. */
+function relayError(e: unknown, host: string, port: number): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ENOTFOUND/.test(msg)) {
+    return `Couldn't reach a relay at ${host}:${port}. Start one with: pnpm --filter @duel/relay-server start`;
+  }
+  return msg;
+}
+
+ipcMain.handle("net:host", async (_e, opts: NetHostOptions): Promise<NetResult> => {
+  teardownNet();
+  const deck = await loadDeck(decksDir(), opts.deckId);
+  if (!deck) return { ok: false, error: "deck not found" };
+  const room = opts.room && opts.room.trim() ? opts.room.trim().toUpperCase() : randomBytes(3).toString("hex").toUpperCase();
+  const startDirs = [__dirname, app.getAppPath()];
+  const format = opts.format ?? "advanced";
+  let started = false;
+
+  const client = new NetClient({
+    onPeerLeft: () => { duelSession?.remoteSurrender("Opponent disconnected"); netStatus({ phase: "peer-left" }); },
+    onError: (message) => netStatus({ phase: "error", message }),
+    onMessage: async (m) => {
+      if (m.t === "deck" && !started) {
+        started = true;
+        const transport = { deck: m.deck, sendToGuest: (u: DuelUpdate) => client.send({ t: "update", update: u }) };
+        const session = new DuelSession(matchUpdate, startDirs);
+        duelSession = session;
+        // Await the result BEFORE telling the guest whether it started — the
+        // guest's deck can fail engine validation, and a premature ok:true would
+        // strand the guest on a board that never starts. The opening update
+        // emitted during start() is retained in lastUpdate and pulled by the
+        // board via net:ready once it mounts.
+        const res = await session.start({ main: deck.main, extra: deck.extra }, nextSeed(opts.seed), true, format, "remote", "normal", null, transport);
+        client.send({ t: "start", ok: res.ok, error: res.error, format });
+        if (res.ok) {
+          netStatus({ phase: "playing", format });
+        } else {
+          duelSession = null;
+          netStatus({ phase: "error", message: res.error ?? "failed to start duel" });
+        }
+      } else if (m.t === "response") {
+        duelSession?.respond(m.response);
+      } else if (m.t === "surrender") {
+        duelSession?.remoteSurrender();
+      }
+    },
+  });
+  netClient = client;
+  netRole = "host";
+  try {
+    await ensureEmbeddedRelay(opts.relayHost, opts.relayPort);
+    await client.connect(opts.relayHost, opts.relayPort, room, "host");
+  } catch (e) {
+    teardownNet();
+    return { ok: false, error: relayError(e, opts.relayHost, opts.relayPort) };
+  }
+  netStatus({ phase: "waiting", room });
+  return { ok: true, room };
+});
+
+ipcMain.handle("net:join", async (_e, opts: NetJoinOptions): Promise<NetResult> => {
+  teardownNet();
+  const deck = await loadDeck(decksDir(), opts.deckId);
+  if (!deck) return { ok: false, error: "deck not found" };
+  const room = opts.room.trim().toUpperCase();
+
+  const client = new NetClient({
+    onPeerJoined: () => client.send({ t: "deck", deck: { main: deck.main, extra: deck.extra } }),
+    onPeerLeft: () => netStatus({ phase: "peer-left" }),
+    onError: (message) => netStatus({ phase: "error", message }),
+    onClose: () => netStatus({ phase: "ended" }),
+    onMessage: (m) => {
+      if (m.t === "start") {
+        if (m.ok) netStatus({ phase: "playing", format: m.format });
+        else netStatus({ phase: "error", message: m.error ?? "host could not start the duel" });
+      } else if (m.t === "update") {
+        matchUpdate(m.update);
+      } else if (m.t === "surrender") {
+        netStatus({ phase: "peer-left" });
+      }
+    },
+  });
+  netClient = client;
+  netRole = "guest";
+  try {
+    await client.connect(opts.relayHost, opts.relayPort, room, "guest");
+  } catch (e) {
+    teardownNet();
+    return { ok: false, error: relayError(e, opts.relayHost, opts.relayPort) };
+  }
+  netStatus({ phase: "connecting", room });
+  return { ok: true, room };
+});
+
+ipcMain.handle("net:leave", () => {
+  teardownNet();
+  netStatus({ phase: "ended" });
+});
+
+// A networked board, once mounted and subscribed, pulls the current board state
+// (it missed the opening update that was sent before it existed).
+ipcMain.handle("net:ready", () => {
+  if (lastUpdate) mainWindow?.webContents.send("match:update", lastUpdate);
 });
 
 app.whenReady().then(() => {
@@ -375,4 +551,9 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("will-quit", () => {
+  embeddedRelay?.close().catch(() => {});
+  embeddedRelay = null;
 });

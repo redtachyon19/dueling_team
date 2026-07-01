@@ -9,10 +9,12 @@ import {
   validateDeck,
   groupZone,
   buildBanlistLookup,
+  buildGenesysLookup,
   banStatusOf,
+  validateDeckForFormat,
   LIMITS,
 } from "./deck.ts";
-import type { BanlistRevision } from "@duel/shared";
+import type { BanlistRevision, GenesysRevision } from "@duel/shared";
 
 function card(o: Partial<CardData>): CardData {
   return {
@@ -93,6 +95,62 @@ describe("validateDeck", () => {
 describe("groupZone", () => {
   it("collapses to [id,count] preserving first-seen order", () => {
     expect(groupZone([8, 7, 8, 8, 7])).toEqual([[8, 3], [7, 2]]);
+  });
+});
+
+describe("validateDeckForFormat", () => {
+  const fillIds = Array.from({ length: 40 }, (_, i) => 100 + i);
+  const cardsMap = (list: CardData[]) => new Map(list.map((c) => [c.id, c] as const));
+  const baseCards = cardsMap(fillIds.map((id) => card({ id, name: `V${id}`, frameType: "effect" })));
+
+  it("advanced: a legal 40-card deck has no issues", () => {
+    const deck = emptyDeck({ main: [...fillIds] });
+    expect(validateDeckForFormat(deck, "advanced", { cards: baseCards, banlist: null, genesys: null })).toEqual([]);
+  });
+
+  it("advanced: an undersized Main is an error", () => {
+    const deck = emptyDeck({ main: [100, 101, 102] });
+    const issues = validateDeckForFormat(deck, "advanced", { cards: baseCards, banlist: null, genesys: null });
+    expect(issues.some((i) => i.level === "error" && /min/.test(i.message))).toBe(true);
+  });
+
+  it("advanced: a Forbidden card is rejected", () => {
+    const rev: BanlistRevision = { date: "2025-01-01", format: "TCG", source: "", fetchedAt: "", forbidden: [{ id: 100, name: "V100" }], limited: [], semiLimited: [] };
+    const deck = emptyDeck({ main: [...fillIds] });
+    const issues = validateDeckForFormat(deck, "advanced", { cards: baseCards, banlist: buildBanlistLookup(rev), genesys: null });
+    expect(issues.some((i) => /Forbidden/.test(i.message))).toBe(true);
+  });
+
+  it("advanced: more copies than a Limited card allows is rejected", () => {
+    const rev: BanlistRevision = { date: "2025-01-01", format: "TCG", source: "", fetchedAt: "", forbidden: [], limited: [{ id: 100, name: "V100" }], semiLimited: [] };
+    const deck = emptyDeck({ main: [100, 100, ...fillIds.slice(1, 39)] }); // 2 of a Limited + 38 = 40
+    const issues = validateDeckForFormat(deck, "advanced", { cards: baseCards, banlist: buildBanlistLookup(rev), genesys: null });
+    expect(issues.some((i) => /max 1/.test(i.message))).toBe(true);
+  });
+
+  it("genesys: Link and Pendulum monsters are rejected", () => {
+    const cards = cardsMap([
+      ...fillIds.map((id) => card({ id, frameType: "effect" })),
+      card({ id: 200, name: "Linky", frameType: "link" }),
+      card({ id: 201, name: "Pendy", frameType: "normal_pendulum" }),
+    ]);
+    const deck = emptyDeck({ main: [201, ...fillIds.slice(0, 39)], extra: [200] });
+    const issues = validateDeckForFormat(deck, "genesys", { cards, banlist: null, genesys: null });
+    expect(issues.some((i) => /Link/.test(i.message))).toBe(true);
+    expect(issues.some((i) => /Pendulum/.test(i.message))).toBe(true);
+  });
+
+  it("genesys: a deck over the points cap is rejected", () => {
+    const rev: GenesysRevision = { date: "2025-01-01", pointCap: 100, source: "", fetchedAt: "", cards: [{ id: 100, name: "V100", points: 60 }, { id: 101, name: "V101", points: 60 }] };
+    const deck = emptyDeck({ main: [...fillIds] }); // 60 + 60 = 120 > 100
+    const issues = validateDeckForFormat(deck, "genesys", { cards: baseCards, banlist: null, genesys: buildGenesysLookup(rev) });
+    expect(issues.some((i) => /over the cap/.test(i.message))).toBe(true);
+  });
+
+  it("genesys: a legal deck under the cap passes", () => {
+    const rev: GenesysRevision = { date: "2025-01-01", pointCap: 100, source: "", fetchedAt: "", cards: [{ id: 100, name: "V100", points: 40 }] };
+    const deck = emptyDeck({ main: [...fillIds] }); // 40 ≤ 100, all effect monsters
+    expect(validateDeckForFormat(deck, "genesys", { cards: baseCards, banlist: null, genesys: buildGenesysLookup(rev) })).toEqual([]);
   });
 });
 

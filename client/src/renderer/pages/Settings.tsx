@@ -18,6 +18,7 @@ const DECK_GESTURES: Gesture[] = [
   { keys: ["Esc"], action: "Clear the current selection" },
   { keys: ["Drag pool card", "→ a zone"], action: "Add the card to the deck" },
   { keys: ["Drag deck card", "→ another zone"], action: "Move it between Main / Extra / Side" },
+  { keys: ["Drag deck card", "within a zone"], action: "Reorder it (drop where you want it)" },
   { keys: ["Drag a card", "out of the deck"], action: "Remove it instantly" },
   { keys: ["Drag a selection"], action: "Add / move / remove every selected card at once" },
 ];
@@ -34,7 +35,8 @@ const DUEL_GESTURES: Gesture[] = [
   { keys: ["Click Graveyard / Banished"], action: "Browse that pile's cards" },
   { keys: ["G"], action: "Open / close your Graveyard" },
   { keys: ["Space"], action: "On a response prompt — respond / activate (Yes)" },
-  { keys: ["Shift"], action: "On a response prompt — No Response / decline (auto after 30s)" },
+  { keys: ["Shift"], action: "On a response prompt — No Response / decline (auto after 5s)" },
+  { keys: ["Esc"], action: "Cancel the current action / close a popup" },
 ];
 
 function GestureList({ items }: { items: Gesture[] }): JSX.Element {

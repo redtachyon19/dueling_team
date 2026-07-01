@@ -46,6 +46,8 @@ const UPDATES: Array<{ date: string; url: string }> = [
   { date: "2026-01-29", url: "https://yugiohblog.konami.com/2026/genesys/burst-protocol-pre-release-points/" },
   { date: "2026-03-05", url: "https://yugiohblog.konami.com/2026/genesys/genesys-march-points-update/" },
   { date: "2026-04-30", url: "https://yugiohblog.konami.com/2026/genesys/blazing-dominion-genesys-points-update/" },
+  { date: "2026-06-08", url: "https://yugiohblog.konami.com/2026/genesys/genesys-june-points-update/" },
+  { date: "2026-06-22", url: "https://yugiohblog.konami.com/2026/genesys/chaos-origins-glorious-gallery-points-update/" },
 ];
 const LAUNCH_DATE = "2025-08-31"; // initial points list (frozen end of August)
 const POINT_CAP = 100;
@@ -73,6 +75,14 @@ const ALIASES: Record<string, string> = {
   "ichika sayori hime": "ichiki sayori hime",
   "sky striker mobilize engage": "sky striker mobilize engage!",
   "clown crew matinee operactics": "clown crew matinee operatics", // Konami typo "Operactics"
+  // June 2026 articles spell these without the comma / with a misplaced
+  // apostrophe; earlier articles used the db spelling, so these only affect June.
+  "nibiru the primal being": "nibiru, the primal being",
+  "magician's souls": "magicians' souls",
+  // June 22 (Chaos Origins / Glorious Gallery) article spellings vs db names.
+  "hideout in the sky, columb": "hideout in the sky, coulomb", // Konami "Columb"
+  "the phantom knights of doomed sorelet": "the phantom knights of doomed soleret", // Konami "Sorelet"
+  "the three champions of swordsoul": "the three brave swordsouls", // db/YGOPRODeck name differs
 };
 
 // db names of the five Barrier Statue cards; "All 6 Barrier Statues" expands to these.

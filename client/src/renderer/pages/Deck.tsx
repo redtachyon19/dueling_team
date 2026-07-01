@@ -442,6 +442,27 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
     e.stopPropagation();
     droppedHandledRef.current = true;
     const payload = dragRef.current;
+    // Rearrange within the same zone: drop on a tile to reposition the dragged
+    // copies there (before/after by which half was dropped on); on empty space
+    // → move to the end. No limit checks — same cards, same zone.
+    if (payload && payload.from === zone) {
+      const arr = deck[zone];
+      const tile = (e.target as HTMLElement).closest("[data-index]") as HTMLElement | null;
+      let insertAt = arr.length;
+      if (tile?.dataset.index != null) {
+        const i = Number(tile.dataset.index);
+        const rect = tile.getBoundingClientRect();
+        insertAt = e.clientX > rect.left + rect.width / 2 ? i + 1 : i;
+      }
+      const src = payload.indices;
+      const movingSet = new Set(src);
+      const moved = src.map((i) => arr[i]).filter((x): x is number => x != null);
+      const remaining = arr.filter((_, i) => !movingSet.has(i));
+      const adj = Math.max(0, insertAt - src.filter((i) => i < insertAt).length);
+      const next = [...remaining.slice(0, adj), ...moved, ...remaining.slice(adj)];
+      if (next.join() !== arr.join()) mutate({ ...deck, [zone]: next });
+      return;
+    }
     if (!payload) {
       const id = Number(e.dataTransfer.getData("text/card-id"));
       const card = byId.get(id);
@@ -785,6 +806,7 @@ function DeckZone({
               className={`mini mini--zone${selected.has(index) ? " mini--pinned" : ""}`}
               style={{ width: `${Math.round(cw)}px`, height: `${Math.round(ch)}px` }}
               data-card-id={id}
+              data-index={index}
               title={`${card?.name ?? String(id)} — click to pin, Shift+Arrow to select more (Delete removes), drag out to remove`}
               draggable
               onDragStart={(e) => onPickUp(zone, index, id, e)}

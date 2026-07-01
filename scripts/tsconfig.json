@@ -3,7 +3,10 @@
   "compilerOptions": {
     "noEmit": true,
     "types": ["node"],
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@n1xx1/ocgcore-wasm": ["../client/node_modules/@n1xx1/ocgcore-wasm/dist/index"]
+    }
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "*.mts"]
 }

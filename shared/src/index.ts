@@ -10,6 +10,7 @@
 // page, the importers, and the duel card readers.
 
 export * from "./duel";
+export * from "./net";
 
 // ---------------------------------------------------------------------------
 // Card data

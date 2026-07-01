@@ -67,6 +67,8 @@ export interface DuelState {
   players: [DuelPlayerState, DuelPlayerState];
   over: boolean;
   winner: DuelPlayer | null;
+  /** Human-readable reason the duel ended ("Deck out", "Surrender", …); null while ongoing. */
+  winReason?: string | null;
 }
 
 // --- Events (animation / log only; NOT the source of board truth) ----------
@@ -81,6 +83,8 @@ export type DuelEvent =
   | { kind: "phase"; phase: DuelPhase }
   | { kind: "turn"; turn: number; player: DuelPlayer }
   | { kind: "win"; player: DuelPlayer }
+  /** A coin/dice toss result (results are pre-rolled by the core; display only). */
+  | { kind: "toss"; player: DuelPlayer; dice: boolean; results: number[] }
   | { kind: "log"; text: string };
 
 // --- Prompts (what the local player must answer) ----------------------------
@@ -92,6 +96,8 @@ export interface PromptCard {
   location: string; // "hand" | "mzone" | "szone" | "grave" | ...
   seq: number;
   controller: DuelPlayer;
+  /** Per-card maximum (used by the counter picker: removable counters here). */
+  max?: number;
 }
 
 /** A clickable, labeled choice (menus, yes/no, option, position, place, chain). */
@@ -118,7 +124,13 @@ export type DuelPromptKind =
   | "selectChain"
   | "yesno"
   | "option"
-  | "effectyn";
+  | "effectyn"
+  /** Remove N counters across the listed cards (PromptCard.max = per-card cap). */
+  | "selectCounter"
+  /** Declare a value from `options` (Type / Attribute / Number). */
+  | "announce"
+  /** Declare a card by name (free search; responds with the chosen passcode). */
+  | "announceCard";
 
 export interface DuelPrompt {
   /** Monotonic id; responses must cite it (stale responses are ignored). */
@@ -138,13 +150,35 @@ export interface DuelPrompt {
 export type DuelResponse =
   | { promptId: number; type: "option"; id: string }
   | { promptId: number; type: "cards"; refs: string[] }
+  /** Per-card counter counts, aligned to the prompt's `cards` order. */
+  | { promptId: number; type: "counters"; counts: number[] }
   | { promptId: number; type: "cancel" };
 
 // --- IPC payloads (main → renderer pushes; renderer → main calls) -----------
+/** Rules format. "genesys" runs on the classic pre-Link Master Rule (no Extra
+ *  Monster Zones, no Pendulum/Link); "advanced" uses the modern (MR5) field. */
+export type DuelFormat = "advanced" | "genesys";
+
+/** AI opponent difficulty. easy: timid (direct attacks only, no backrow);
+ *  normal: sensible (favorable attacks, sets backrow); hard: aggressive
+ *  (trades up, probes face-downs). */
+export type DuelDifficulty = "easy" | "normal" | "hard";
+
 export interface DuelStartOptions {
   deckId: string;
   /** Goldfish: the opponent passes on everything. Defaults true. */
   goldfish?: boolean;
+  /** Opponent behaviour: "goldfish" passes; "ai" plays a heuristic game. Default "goldfish". */
+  opponent?: "goldfish" | "ai";
+  /** AI difficulty (when opponent is "ai"). Default "normal". */
+  difficulty?: DuelDifficulty;
+  /** Deck the AI plays with (when opponent is "ai"). Omit for the built-in
+   *  default opponent deck. */
+  aiDeckId?: string | undefined;
+  /** Rules format; defaults to "advanced". */
+  format?: DuelFormat;
+  /** Decimal seed string for a reproducible shuffle; omit for OS-random. */
+  seed?: string | undefined;
 }
 
 export interface DuelUpdate {

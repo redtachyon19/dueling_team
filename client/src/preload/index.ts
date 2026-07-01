@@ -65,4 +65,20 @@ contextBridge.exposeInMainWorld("duel", {
       return () => ipcRenderer.removeListener("match:update", listener);
     },
   },
+  net: {
+    /** Host an online room (run ocgcore locally; wait for a guest). */
+    host: (opts: unknown) => ipcRenderer.invoke("net:host", opts),
+    /** Join an existing room as the thin (guest) client. */
+    join: (opts: unknown) => ipcRenderer.invoke("net:join", opts),
+    /** Leave / tear down the online session. */
+    leave: () => ipcRenderer.invoke("net:leave"),
+    /** Networked board signals it's subscribed; pull the current board state. */
+    ready: () => ipcRenderer.invoke("net:ready"),
+    /** Subscribe to connection-state changes. Returns an unsubscribe fn. */
+    onStatus: (cb: (s: unknown) => void) => {
+      const listener = (_e: unknown, s: unknown) => cb(s);
+      ipcRenderer.on("net:status", listener);
+      return () => ipcRenderer.removeListener("net:status", listener);
+    },
+  },
 });

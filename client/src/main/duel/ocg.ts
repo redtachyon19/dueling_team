@@ -12,25 +12,34 @@ import type { OcgCardData, OcgCoreSync } from "@n1xx1/ocgcore-wasm";
 type CreateCore = typeof import("@n1xx1/ocgcore-wasm").default;
 
 let corePromise: Promise<OcgCoreSync> | null = null;
+let searchCorePromise: Promise<OcgCoreSync> | null = null;
+
+async function createSyncCore(): Promise<OcgCoreSync> {
+  // The package entry (mod.js) re-exports with `export *`, dropping the
+  // default (createCore); the real declarations live in dist/index.js.
+  // import.meta.resolve normally returns the entry, but a tsconfig `paths`
+  // alias (used for typechecking) can make tsx return dist/index.js itself —
+  // handle both so this works under the bundled app and under tsx.
+  const resolved = import.meta.resolve("@n1xx1/ocgcore-wasm");
+  const url = /[\\/]dist[\\/]index\.js$/.test(resolved) ? resolved : new URL("./dist/index.js", resolved).href;
+  const mod: { default: CreateCore } = await import(url);
+  return mod.default({ sync: true });
+}
 
 /** Load (once) the synchronous ocgcore. Sync mode avoids JSPI/stack-switching. */
 export async function getCore(): Promise<OcgCoreSync> {
-  if (!corePromise) {
-    corePromise = (async () => {
-      // The package entry (mod.js) re-exports with `export *`, dropping the
-      // default (createCore); the real declarations live in dist/index.js.
-      // import.meta.resolve normally returns the entry, but a tsconfig `paths`
-      // alias (used for typechecking) can make tsx return dist/index.js itself —
-      // handle both so this works under the bundled app and under tsx.
-      const resolved = import.meta.resolve("@n1xx1/ocgcore-wasm");
-      const url = /[\\/]dist[\\/]index\.js$/.test(resolved)
-        ? resolved
-        : new URL("./dist/index.js", resolved).href;
-      const mod: { default: CreateCore } = await import(url);
-      return mod.default({ sync: true });
-    })();
-  }
+  if (!corePromise) corePromise = createSyncCore();
   return corePromise;
+}
+
+/** A SEPARATE ocgcore instance for the AI's look-ahead search. The forward
+ *  search spins up and tears down many scratch duels; running them on their own
+ *  WASM heap guarantees that churn can never disturb the live duel's handle
+ *  (double-free / heap corruption on the shared core is a known crash class).
+ *  Card/script readers are pure data and are safely shared across instances. */
+export async function getSearchCore(): Promise<OcgCoreSync> {
+  if (!searchCorePromise) searchCorePromise = createSyncCore();
+  return searchCorePromise;
 }
 
 interface CardDataJson {
@@ -71,6 +80,8 @@ export interface OcgReaders {
   /** Load base scripts (constant.lua, utility.lua) into a duel before cards run. */
   baseScripts: { name: string; content: string }[];
   scriptDir: string;
+  /** Every card in the DB — for build-time tools (e.g. deck-pool generation). */
+  cards: OcgCardData[];
 }
 
 /** Build the card + script readers from assets/ocg. `startDirs` seeds the search. */
@@ -124,6 +135,7 @@ export function buildReaders(startDirs: string[]): OcgReaders {
     scriptReader,
     baseScripts,
     scriptDir,
+    cards: Array.from(cardMap.values()),
   };
 }
 

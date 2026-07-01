@@ -198,8 +198,23 @@ async function main() {
     101303071, // "Elvennotes ~Oracle Alicetea~" — OCG dupe of TCG "Elfnotes: Aristeia of Trust" (50590801)
   ]);
 
+  // Hand-curated keeps (Red's call): confirmed TCG cards that upstream still
+  // under-tags as OCG-only because their TCG metadata hasn't landed yet (no
+  // card_sets / tcg_date, and Yugipedia's TCG page lags the OCG one). These are
+  // Chaos Origins / Battles of Legend: Glorious Gallery cards that Konami's TCG
+  // Genesys point list already covers, so they belong in the TCG pool. Drop an
+  // entry once a normal import picks the card up on its own.
+  const MANUAL_INCLUDE = new Set<number>([
+    83566725, // The Phantom Knights of Doomed Soleret — Yugipedia medium OCG,TCG (shares passcode with an OCG-only "Solleret" page)
+    97462632, // Griffoh
+    82344137, // Phara the Primordial Goddess
+    24461358, // Ragged Records of Rites
+  ]);
+
   const tcg = all.filter(
-    (c) => !isOcgOnly(c) && !REMOVE_TYPES.has(c.type) && !MANUAL_EXCLUDE.has(c.id),
+    (c) =>
+      MANUAL_INCLUDE.has(c.id) ||
+      (!isOcgOnly(c) && !REMOVE_TYPES.has(c.type) && !MANUAL_EXCLUDE.has(c.id)),
   );
   const dropped = all.length - tcg.length;
   const skills = all.filter((c) => REMOVE_TYPES.has(c.type)).length;
