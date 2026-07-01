@@ -1,9 +1,9 @@
 // client/src/renderer/pages/CardGridPage.tsx
 //
 // Shared shell for the in-page "grid of cards" views (a set's cards, an
-// archetype's cards): a back bar, a header, the hover CardViewer on the left,
-// and a clickable card grid on the right. Each consumer just supplies the
-// title/meta and the list of cards.
+// archetype's cards, the Number collection): a back bar, a header, the hover
+// CardViewer on the left, and a clickable card grid on the right. Each consumer
+// supplies the title/meta and either a flat `cards` list or grouped `sections`.
 
 import { useEffect, useState } from "react";
 import type { CardData } from "@duel/shared";
@@ -18,11 +18,18 @@ export interface GridCard {
   code?: string;
 }
 
+/** A titled run of tiles, rendered as a heading + its own grid. */
+export interface GridSection {
+  title: string;
+  cards: GridCard[];
+}
+
 export function CardGridPage({
   crumb,
   title,
   meta,
   cards,
+  sections,
   emptyText,
   onOpenCard,
   onBack,
@@ -30,7 +37,10 @@ export function CardGridPage({
   crumb: string;
   title: string;
   meta: JSX.Element;
-  cards: GridCard[];
+  /** Flat list of tiles. Provide this OR `sections`. */
+  cards?: GridCard[];
+  /** Grouped tiles, each shown under its own heading. Takes precedence over `cards`. */
+  sections?: GridSection[];
   emptyText: string;
   onOpenCard: (c: CardData) => void;
   onBack: () => void;
@@ -46,6 +56,30 @@ export function CardGridPage({
   // The card shown in the side viewer; updated on hover, sticky when the cursor
   // leaves (same behavior as the search grid).
   const [preview, setPreview] = useState<ArtworkTile | null>(null);
+
+  const tile = ({ card, key, code }: GridCard): JSX.Element => (
+    <article
+      key={key}
+      className="setview__tile"
+      title={`${card.name}${code ? ` · ${code}` : ""}`}
+      onMouseEnter={() => setPreview({ card, imageId: card.images[0] ?? card.id })}
+      onFocus={() => setPreview({ card, imageId: card.images[0] ?? card.id })}
+      onClick={() => onOpenCard(card)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpenCard(card);
+        }
+      }}
+      tabIndex={0}
+    >
+      <TileArt id={card.images[0] ?? card.id} name={card.name} />
+      {code && <div className="setview__tile-code">{code}</div>}
+      <div className="setview__tile-name">{card.name}</div>
+    </article>
+  );
+
+  const total = sections ? sections.reduce((n, s) => n + s.cards.length, 0) : (cards?.length ?? 0);
 
   return (
     <div className="setview">
@@ -64,32 +98,24 @@ export function CardGridPage({
       <div className="setview__body">
         <CardViewer tile={preview} />
 
-        {cards.length === 0 ? (
+        {total === 0 ? (
           <div className="setview__none">{emptyText}</div>
-        ) : (
-          <div className="setview__grid">
-            {cards.map(({ card, key, code }) => (
-              <article
-                key={key}
-                className="setview__tile"
-                title={`${card.name}${code ? ` · ${code}` : ""}`}
-                onMouseEnter={() => setPreview({ card, imageId: card.images[0] ?? card.id })}
-                onFocus={() => setPreview({ card, imageId: card.images[0] ?? card.id })}
-                onClick={() => onOpenCard(card)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onOpenCard(card);
-                  }
-                }}
-                tabIndex={0}
-              >
-                <TileArt id={card.images[0] ?? card.id} name={card.name} />
-                {code && <div className="setview__tile-code">{code}</div>}
-                <div className="setview__tile-name">{card.name}</div>
-              </article>
-            ))}
+        ) : sections ? (
+          <div className="setview__sections">
+            {sections
+              .filter((s) => s.cards.length > 0)
+              .map((s) => (
+                <section key={s.title} className="setview__section">
+                  <h2 className="setview__section-title">
+                    {s.title}
+                    <span className="setview__section-count">{s.cards.length}</span>
+                  </h2>
+                  <div className="setview__grid setview__grid--insection">{s.cards.map(tile)}</div>
+                </section>
+              ))}
           </div>
+        ) : (
+          <div className="setview__grid">{(cards ?? []).map(tile)}</div>
         )}
       </div>
     </div>
