@@ -856,6 +856,23 @@ h1 {
 .settings__about dt { color: #888; }
 .settings__about dd { margin: 0; color: #e0e0e0; }
 .settings__note { color: #777; font-size: 13px; }
+
+.settings__rows { display: flex; flex-direction: column; gap: 10px; }
+.settings__row {
+  display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+  padding: 14px 16px; border: 1px solid #2a2a2a; background: #141414; border-radius: 6px;
+}
+.settings__row-text { flex: 1; min-width: 240px; }
+.settings__label { display: block; font-size: 14px; font-weight: 600; color: #ddd; }
+.settings__hint { margin: 4px 0 0; font-size: 12px; color: #888; line-height: 1.5; max-width: 62ch; }
+.settings__control { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.settings__range { width: 220px; accent-color: #5cf; cursor: pointer; }
+.settings__value {
+  min-width: 44px; text-align: right; font-variant-numeric: tabular-nums;
+  font-size: 14px; font-weight: 600; color: #cfe0ff;
+}
+.settings__reset { font-size: 12px; padding: 4px 10px; }
+.settings__reset:disabled { opacity: 0.4; cursor: default; }
 .settings__gestures { list-style: none; margin: 0; padding: 0; max-width: 560px; display: flex; flex-direction: column; gap: 8px; }
 .settings__gesture {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px;
@@ -943,6 +960,9 @@ h1 {
 @keyframes online-spin { to { transform: rotate(360deg); } }
 
 /* ===================== Duel board ===================== */
+.page__layer { height: 100%; min-height: 0; }
+.page__layer--hidden { display: none; }
+
 .duelboard {
   position: relative;
   /* Zone size scales to fill the space: limited by width (9 columns beside the
@@ -982,24 +1002,65 @@ h1 {
 .duel-log__line { font-size: 12px; color: #bcbcc4; line-height: 1.45; }
 .duel-log__line.is-turn { color: #8fb4ff; font-weight: 600; margin-top: 6px; }
 
-.duelboard__field { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 6px; background: transparent; border: none; padding: 8px 0; overflow: hidden; }
+.duelboard__field {
+  position: relative; flex: 1; min-height: 0;
+  display: flex; flex-direction: column; justify-content: center;
+  background: transparent; border: none; padding: 0; overflow: hidden;
+  /* The playfield is drawn as a tabletop receding away from the player. The
+     depth here sets how strong the foreshortening reads; --tilt (degrees, set
+     from Settings) is the angle itself. */
+  perspective: 1200px;
+  perspective-origin: 50% 58%;
+}
+
+/* The tilted surface. Only the zone rows live in here — banners, the game-over
+   card and the coin/dice overlays stay outside so they never skew. */
+.dfield__mat {
+  position: relative;
+  display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 0;
+  /* Only as wide as the zone rows, so the painted mat hugs the field instead of
+     bleeding to the window edges. */
+  width: max-content; max-width: 100%; margin: 0 auto;
+  padding: 14px 18px;
+  /* Measured: rotateX(+25deg) renders the top edge at 380px and the bottom at
+     422px, i.e. positive tilts the far (opponent) edge away. */
+  /* One uniform scale on the container: every zone, card, pile and label inside
+     grows by exactly the same factor. */
+  transform: rotateX(var(--tilt, 16deg)) scale(var(--field-scale, 1));
+  transform-style: preserve-3d;
+  transition: transform 220ms ease;
+}
+.dfield__mat .duelboard__side { width: 100%; }
+
+/* Painted mat under the zones: a lit centre falling off to the edges, with a
+   dividing line where the two fields meet. */
+.dfield__surface {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(16, 26, 42, 0.55), rgba(10, 16, 28, 0.55));
+  border: 1px solid rgba(120, 170, 255, 0.14);
+  box-shadow: 0 22px 44px rgba(0, 0, 0, 0.5);
+}
+.dfield__mat > *:not(.dfield__surface) { position: relative; z-index: 1; }
 /* Game-over result — fills and centers on the duel field (not the whole window). */
 .dfield-over { position: absolute; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: rgba(8, 8, 8, 0.55); backdrop-filter: blur(1px); }
 .dfield-over__box { background: #141414; border: 1px solid #2a2a2a; border-radius: 6px; padding: 20px 44px; box-shadow: 0 12px 36px #000b; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .dfield-over__title { font-size: 24px; font-weight: 700; color: #eee; }
 .dfield-over__reason { font-size: 13px; color: #9aa; }
 .dfield-over__actions { display: flex; gap: 10px; margin-top: 4px; }
-.duelboard__divider { height: 1px; background: linear-gradient(90deg, transparent, #2a2a2a, transparent); margin: 4px 0; }
-.duelboard__side { display: flex; flex-direction: column; gap: 6px; }
+.duelboard__side { display: flex; flex-direction: column; gap: 0; }
 .duelboard__sidehead { display: flex; align-items: center; gap: 14px; font-size: 12px; color: #9fb0a4; }
 .duelboard__who { font-weight: 700; letter-spacing: 0.04em; color: #cfe; }
 .dlp { color: #ffe14d; font-variant-numeric: tabular-nums; }
 .dpiles { display: flex; gap: 10px; }
 .dpile { color: #889; font-variant-numeric: tabular-nums; }
 
-.duelboard__row { display: flex; gap: 6px; justify-content: center; align-items: center; flex-wrap: nowrap; }
+/* No gap: the cells share edges, so each cell's corner arms meet its
+   neighbour's and form one continuous grid — a cross at interior
+   intersections, a tee along the outer edges. */
+.duelboard__row { display: flex; gap: 0; justify-content: center; align-items: center; flex-wrap: nowrap; }
 /* The 2 shared Extra Monster Zones, centered between the two players' fields. */
-.duelboard__emz { display: flex; gap: 6px; justify-content: center; align-items: center; }
+.duelboard__emz { display: flex; gap: 0; justify-content: center; align-items: center; }
 /* The local Extra Deck is clickable to browse its contents. */
 .dzone--pile.is-browsable { cursor: pointer; }
 .dzone--pile.is-browsable:hover { border-color: #8a6fc0; }
@@ -1011,16 +1072,33 @@ h1 {
 /* A zone container's WIDTH equals a card's height, so a card rotated to
    defense/set (90°) spans the full width with no side padding. The height
    keeps the full square so a portrait (attack-position) card still fits. */
+/* A perfect square cell. No frame, no fill — the only marking is a blue bracket
+   at each corner (Duel Academy style), drawn as eight background slivers so it
+   costs no extra DOM. */
 .dzone {
-  position: relative; width: var(--card-h); height: var(--zone); flex: 0 0 auto;
+  position: relative; width: var(--zone); height: var(--zone); flex: 0 0 auto;
   display: flex; align-items: center; justify-content: center;
-  border: 1px solid #16201a; background: #0a0d0a;
+  border: none; background: none;
 }
-.dzone-spacer { width: var(--card-h); height: var(--zone); flex: 0 0 auto; visibility: hidden; }
+.dzone--mon::before, .dzone--st::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  --arm: 30%;
+  --k: #4db8ff;
+  background:
+    linear-gradient(var(--k), var(--k)) 0 0 / var(--arm) 2px no-repeat,
+    linear-gradient(var(--k), var(--k)) 0 0 / 2px var(--arm) no-repeat,
+    linear-gradient(var(--k), var(--k)) 100% 0 / var(--arm) 2px no-repeat,
+    linear-gradient(var(--k), var(--k)) 100% 0 / 2px var(--arm) no-repeat,
+    linear-gradient(var(--k), var(--k)) 0 100% / var(--arm) 2px no-repeat,
+    linear-gradient(var(--k), var(--k)) 0 100% / 2px var(--arm) no-repeat,
+    linear-gradient(var(--k), var(--k)) 100% 100% / var(--arm) 2px no-repeat,
+    linear-gradient(var(--k), var(--k)) 100% 100% / 2px var(--arm) no-repeat;
+}
+.dzone-spacer { width: var(--zone); height: var(--zone); flex: 0 0 auto; visibility: hidden; }
 
 .dslot {
   position: relative; width: var(--card-w); height: var(--card-h);
-  border: 1px dashed #2a3a2c; background: #0b0f0c;
+  border: none; background: none;
   display: flex; align-items: center; justify-content: center;
 }
 /* The card sits in the zone; only it rotates (the dashed frame stays portrait). */
@@ -1029,39 +1107,38 @@ h1 {
   display: flex; align-items: center; justify-content: center;
   transition: transform 160ms ease;
 }
-.dcard--rot { transform: rotate(90deg); } /* defense / face-down defense monster */
+/* Defense / face-down. Scaled so the rotated card fills the cell's full width —
+   adjacent set monsters meet with no gap. Vertical padding is unaffected: the
+   rotated card's height is --card-w, still well inside the cell. */
+.dcard--rot { transform: rotate(90deg) scale(var(--rot-scale, 1)); }
 /* The opponent's zones are still mirrored left-right (row-reversed) so the board
    reads as a tabletop, but their card art faces the local player upright — same
    orientation as our own cards, not turned 180° away. */
 .duelboard__row--rev .dcard { transform: none; }
-.duelboard__row--rev .dcard--rot { transform: rotate(90deg); }
+.duelboard__row--rev .dcard--rot { transform: rotate(90deg) scale(var(--rot-scale, 1)); }
 .dslot .dcard__art, .dcard .dcard__art { width: 100%; height: 100%; object-fit: contain; display: block; }
 
 /* Zone accents are keyed to the card-type palette (see FRAME_COLORS): monsters
    are the Effect-Monster brown (#e0934a); spell/trap zones gradient from the
    Spell teal (#16a085) to the Trap magenta (#c44f86). */
-.dzone--mon {
-  border-image: linear-gradient(135deg, #d9b94e, #e0934a) 1;
-  background: linear-gradient(135deg, rgba(217, 185, 78, 0.14), rgba(224, 147, 74, 0.14));
-}
-.dzone--mon .dslot { border-color: #8a6034; } /* warm brown dashed (not green) */
-
-.dzone--st {
-  border-image: linear-gradient(135deg, #16a085, #c44f86) 1;
-  background: linear-gradient(135deg, rgba(22, 160, 133, 0.14), rgba(196, 79, 134, 0.14));
-}
-.dzone--st .dslot { border-color: #5b4e63; }
+.dzone--mon, .dzone--st { border-image: none; background: none; }
 
 /* The field-spell zone is a Spell zone — tint it the Spell teal. */
-.dzone--fieldz { border-color: #16a085; background: rgba(22, 160, 133, 0.12); }
-.dslot--field { border-color: #16a085; }
+/* Field Spell sits beside the grid like the piles do — one card slot, no square
+   cell and no corner brackets. */
+.dzone--fieldz { border: none; background: none; }
+.dslot--field {
+  border: 1px solid rgba(150, 190, 255, 0.16); border-radius: 3px;
+  background: rgba(6, 12, 22, 0.45);
+}
 
 /* piles: deck / extra / graveyard / banished — grey gradient frame (same
    border-image treatment as the monster/spell zones), with each pile's dashed
    slot keeping its own accent colour. */
-.dzone--pile {
-  border-image: linear-gradient(135deg, #9aa0a6, #4b4f55) 1;
-  background: linear-gradient(135deg, rgba(154, 160, 166, 0.12), rgba(75, 79, 85, 0.12));
+.dzone--pile { border-image: none; }
+.dzone--pile .dslot {
+  border: 1px solid rgba(150, 190, 255, 0.16); border-radius: 3px;
+  background: rgba(6, 12, 22, 0.45);
 }
 .dzone--pile .dslot { overflow: hidden; }
 .dslot--deck { border-color: #6a6f76; }    /* main deck — grey */
@@ -1070,6 +1147,16 @@ h1 {
 .dslot--banish { border-color: #c0444a; }  /* banishment — red */
 .dzone--pile .dcard__art { opacity: 0.7; }
 .dzone--grave .dcard__art { opacity: 1; } /* face-up graveyard card reads clearly */
+
+/* Banished sits right next to the Graveyard — each pile is a full square cell,
+   so without this they read as two unrelated boxes. The opponent's rows are
+   row-reversed, so the pull has to swap sides to stay on the GY side. */
+/* transform, NOT margin: a negative margin shrinks the row, and the row is
+   centre-justified, so it would drag the five middle zones out of alignment
+   with the row above. A transform is visual only — layout width is untouched
+   and the grid stays locked. */
+.dzone--banish { transform: translateX(calc(var(--zone) * -0.3)); }
+.duelboard__row--rev .dzone--banish { transform: translateX(calc(var(--zone) * 0.3)); }
 .dslot__count {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   font-size: 16px; font-weight: 800; color: #fff; text-shadow: 0 1px 4px #000, 0 0 6px #000;
@@ -1095,7 +1182,20 @@ h1 {
   background: #000a; color: #fff; padding: 0 2px; font-variant-numeric: tabular-nums; z-index: 2;
 }
 
-.dhand { position: relative; flex-shrink: 0; height: calc(var(--card-h) + 40px); }
+/* The hand sits flat in front of the tilted board, cards a little larger than
+   the field's so they stay readable while the board recedes. */
+/* A straight row of upright cards, floating OVER the field rather than taking
+   rows away from it — the board gets the whole height and the hand overlaps its
+   near edge. The strip itself is click-through; only the cards catch the mouse. */
+.dhand {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
+  display: flex; justify-content: center; align-items: flex-end; gap: 6px;
+  height: var(--hand-h);
+  pointer-events: none;
+  --hand-h: calc(var(--card-h) * 1.18);
+  --hand-w: calc(var(--card-w) * 1.18);
+}
+.dhand__slot { pointer-events: auto; }
 .dhand__empty { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #667; font-size: 12px; }
 
 /* Opponent's hand: always concealed (card backs), view-only. Rendered as the player's hand turned
@@ -1103,20 +1203,22 @@ h1 {
    curving to their side, anchored along the top edge. Cards inherit the board's
    default --card-h/--card-w, so they match the field cards in size. */
 .dhand--opp {
-  height: calc(var(--card-h) + 12px);
-  transform: rotate(180deg);
+  top: 0; bottom: auto;
+  height: calc(var(--card-h) * 0.82);
+  align-items: flex-start;
+  opacity: 0.92;
+}
+.dhand--opp .dhand__slot {
+  width: calc(var(--card-w) * 0.82); height: calc(var(--card-h) * 0.82);
 }
 .dhand--opp .dhand__slot { cursor: default; }
 /* The 180° turn flips the base hover (translateY(-20px)) so it lifts the card
    down into the board, which is what we want — no opponent-specific override. */
 .dhand__slot {
-  position: absolute; left: 50%; bottom: 4px;
-  width: var(--card-w); height: var(--card-h); cursor: default;
-  /* Every card pivots around one shared point well below the hand → a clean
-     single-arc fan. The radius (card-h × 1.9) sets how tight the fan curls. */
-  transform-origin: 50% calc(100% + var(--card-h) * 1.9);
-  transform: translateX(-50%) rotate(var(--rot, 0deg));
+  position: relative; flex: 0 1 auto; min-width: 0;
+  width: var(--hand-w); height: var(--hand-h); cursor: default;
   transition: transform 140ms ease;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.55));
 }
 /* The slot is the fixed hit target: it keeps its fan position/rotation and
    never moves on hover, so the cursor can't slip off the card and make it
@@ -1126,7 +1228,12 @@ h1 {
   transition: transform 140ms ease;
 }
 .dhand__slot:hover { z-index: 50; }
-.dhand__slot:hover .dhand__card { transform: translateY(-20px) scale(1.06); }
+.dhand__slot:hover .dhand__card { transform: translateY(-26px) scale(1.14); }
+/* A card the current prompt can act on gets a warm rim so the playable cards
+   read at a glance instead of needing a hover. */
+.dhand__slot.is-actionable .dhand__card {
+  filter: drop-shadow(0 0 6px rgba(255, 210, 120, 0.85));
+}
 .dhand__card .dcard__art { width: 100%; height: 100%; object-fit: contain; }
 /* Pointer-driven gestures: suppress the browser's native image drag and text
    selection so a press-drag is read as a gesture, not a selection. */
@@ -1165,7 +1272,7 @@ h1 {
 .dsurrender__fill { fill: none; stroke: #e0445a; stroke-width: 5; stroke-linecap: round; transition: stroke-dashoffset 80ms linear; }
 .dsurrender__label { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #e0445a; text-shadow: 0 1px 3px #000; }
 
-.duelboard__footer { flex-shrink: 0; display: flex; gap: 12px; height: 150px; }
+.duelboard__footer { position: relative; z-index: 0; flex-shrink: 0; display: flex; gap: 12px; height: 150px; }
 
 .dprompt { flex: 1; min-width: 0; background: #141414; border: 1px solid #2a2a2a; padding: 10px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
 /* Floating prompt overlay (only shown for sub-prompts / game over). */
@@ -1220,7 +1327,7 @@ h1 {
 .dlog::-webkit-scrollbar-thumb { background: #2a2a2a; }
 
 /* Left-side card viewer panel (same look as the Cards search). */
-.duelboard__main { flex: 1; min-height: 0; display: flex; gap: 14px; }
+.duelboard__main { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; gap: 14px; }
 /* Coin-flip animation (centered overlay; each coin lands on its real result). */
 .dcoins { position: absolute; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; gap: 30px; pointer-events: none; }
 .dcoin-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
@@ -1254,7 +1361,7 @@ h1 {
 .duel-tips__x { appearance: none; background: none; border: none; color: #9cc; cursor: pointer; font-size: 12px; line-height: 1; }
 .duel-tips__x:hover { color: #fff; }
 /* Pre-commit zone-picker hint bar. */
-.duelboard__play { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.duelboard__play { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 0; }
 
 .dphase { display: flex; gap: 3px; }
 .dphase__step { font-size: 11px; font-weight: 600; color: #667; padding: 2px 6px; border: 1px solid #222; font-variant-numeric: tabular-nums; }

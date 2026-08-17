@@ -5,6 +5,7 @@ import { Deck } from "./pages/Deck";
 import { Duel } from "./pages/Duel";
 import { Social } from "./pages/Social";
 import { Settings } from "./pages/Settings";
+import { TabActiveContext } from "./tab-active.ts";
 
 const TABS = ["Home", "Cards", "Deck", "Duel", "Social"] as const;
 type Tab = (typeof TABS)[number];
@@ -36,6 +37,16 @@ function GearIcon(): JSX.Element {
 export function App(): JSX.Element {
   const [active, setActive] = useState<View>("Home");
   const Page = active === "Settings" ? Settings : PAGES[active];
+
+  // The Duel page is kept mounted once visited and merely hidden when you
+  // switch tabs. Unmounting it runs DuelBoard's cleanup, which calls
+  // match.end() and kills a duel in progress — so browsing to Cards or Settings
+  // mid-duel used to forfeit the game.
+  const [duelMounted, setDuelMounted] = useState(false);
+  useEffect(() => {
+    if (active === "Duel") setDuelMounted(true);
+  }, [active]);
+  const duelVisible = active === "Duel";
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -75,7 +86,18 @@ export function App(): JSX.Element {
         </button>
       </nav>
       <main className="page" role="tabpanel" aria-label={active}>
-        <Page />
+        {!duelVisible && (
+          <TabActiveContext.Provider value={true}>
+            <Page />
+          </TabActiveContext.Provider>
+        )}
+        {duelMounted && (
+          <div className={`page__layer${duelVisible ? "" : " page__layer--hidden"}`} aria-hidden={!duelVisible}>
+            <TabActiveContext.Provider value={duelVisible}>
+              <Duel />
+            </TabActiveContext.Provider>
+          </div>
+        )}
       </main>
     </div>
   );

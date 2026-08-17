@@ -3,6 +3,8 @@ import type { CardData, DuelCard, DuelDifficulty, DuelEvent, DuelFormat, DuelOpt
 import cardBack from "../../../../ui/assets/sleeves/original_card_sleeve.png";
 import { toLogEntries } from "../cards/duel-log.ts";
 import { CardViewer } from "./CardViewer.tsx";
+import { useSettings } from "../settings.ts";
+import { useTabActive } from "../tab-active.ts";
 
 const EMPTY_SET: Set<string> = new Set();
 
@@ -85,8 +87,20 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
   const [logOpen, setLogOpen] = useState(false);
   const [placing, setPlacing] = useState<{ promptId: number; optionId: string; kind: "monster" | "spell" } | null>(null);
 
+  const { boardTilt, boardScale } = useSettings();
+
+  // The board stays mounted while another tab is on screen, so every global key
+  // handler below must ignore keystrokes meant for that tab. A ref keeps the
+  // listeners from re-registering on each switch.
+  const tabActive = useTabActive();
+  const tabActiveRef = useRef(tabActive);
+  tabActiveRef.current = tabActive;
+
   const [zonePx, setZonePx] = useState(120);
   const roRef = useRef<ResizeObserver | null>(null);
+  // Rows the mat actually draws (Genesys has no Extra Monster Zone row) plus the
+  // two side headers. The hands float over the field, so they cost nothing here.
+  const rowUnits = format === "genesys" ? 4.7 : 5.7;
   const playRefCb = useCallback((el: HTMLDivElement | null) => {
     roRef.current?.disconnect();
     if (!el) return;
@@ -94,15 +108,15 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
       const P = el.clientHeight;
       const W = el.clientWidth;
       if (P <= 0 || W <= 0) return;
-      const byH = (P - 140) / 6.6;
-      const byW = (W - 48) / 9;
-      setZonePx(Math.max(56, Math.min(byW, byH, 176)));
+      const byH = (P - 16) / rowUnits;
+      const byW = (W - 24) / 9;
+      setZonePx(Math.max(56, Math.min(byW, byH, 260)));
     };
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     roRef.current = ro;
     measure();
-  }, []);
+  }, [rowUnits]);
 
   const [, bump] = useState(0);
   const cardsRef = useRef<Map<number, CardData>>(new Map());
@@ -205,6 +219,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
     const noId = prompt.options.find((o) => o.id === "pass" || o.id === "no")?.id;
     const yesId = prompt.options.find((o) => o.id === "yes" || o.id.startsWith("chain:"))?.id;
     const onKey = (e: KeyboardEvent) => {
+      if (!tabActiveRef.current) return;
       if (e.repeat) return;
       if (e.key === "Shift" && noId) {
         e.preventDefault();
@@ -221,6 +236,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!tabActiveRef.current) return;
       if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key !== "g" && e.key !== "G") return;
       const tag = (e.target as HTMLElement | null)?.tagName;
@@ -236,6 +252,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!tabActiveRef.current) return;
       if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key !== "l" && e.key !== "L") return;
       const tag = (e.target as HTMLElement | null)?.tagName;
@@ -250,6 +267,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
   useEffect(() => {
     if (!prompt || (prompt.kind !== "idle" && prompt.kind !== "battle")) return;
     const onKey = (e: KeyboardEvent) => {
+      if (!tabActiveRef.current) return;
       if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
@@ -266,6 +284,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!tabActiveRef.current) return;
       if (e.key !== "Escape") return;
       if (placing) { e.preventDefault(); setPlacing(null); return; }
       if (menu) { e.preventDefault(); setMenu(null); return; }
@@ -483,7 +502,22 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
   const dragCls = drag ? (drag.isMonster ? " is-drag-mon" : " is-drag-st") : "";
 
   return (
-    <div className={`duelboard${dragCls}`} style={{ "--zone": `${zonePx}px` } as CSSProperties} onMouseOver={onHover} onClick={onBoardClick} onPointerDown={onPointerDown}>
+    <div
+      className={`duelboard${dragCls}`}
+      style={{
+        "--zone": `${zonePx}px`,
+        "--tilt": `${boardTilt}deg`,
+        "--field-scale": boardScale,
+        // A rotated (set / defense) card is --card-h wide, 16px short of the
+        // zone. Scaling by this makes it span the cell exactly, so two set
+        // monsters in adjacent zones touch. CSS can't divide length by length,
+        // so the ratio is computed here.
+        "--rot-scale": zonePx / (zonePx - 16),
+      } as CSSProperties}
+      onMouseOver={onHover}
+      onClick={onBoardClick}
+      onPointerDown={onPointerDown}
+    >
       {menu && (
         <CardMenu
           menu={menu}
@@ -547,11 +581,14 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
 
           <div className="duelboard__field">
             {banner && <div key={banner.id} className={`dbanner dbanner--${banner.tone}`}>{banner.text}</div>}
-            <PlayerSide who="Opponent" p={opp} flip active={state.turnPlayer === 1} nameOf={nameOf} actionable={EMPTY_SET} targets={EMPTY_SET} />
-            {format !== "genesys" && (
-              <ExtraMonsterZones cards={[me.monsters[5] ?? null, me.monsters[6] ?? null]} actionable={actionable} targets={boardTargets} nameOf={nameOf} />
-            )}
-            <PlayerSide who="You" p={me} active={state.turnPlayer === 0} nameOf={nameOf} local actionable={actionable} targets={boardTargets} extraReady={extraSummon.size > 0} />
+            <div className="dfield__mat">
+              <div className="dfield__surface" aria-hidden="true" />
+              <PlayerSide who="Opponent" p={opp} flip active={state.turnPlayer === 1} nameOf={nameOf} actionable={EMPTY_SET} targets={EMPTY_SET} />
+              {format !== "genesys" && (
+                <ExtraMonsterZones cards={[me.monsters[5] ?? null, me.monsters[6] ?? null]} actionable={actionable} targets={boardTargets} nameOf={nameOf} />
+              )}
+              <PlayerSide who="You" p={me} active={state.turnPlayer === 0} nameOf={nameOf} local actionable={actionable} targets={boardTargets} extraReady={extraSummon.size > 0} />
+            </div>
             {state.over && (
               <div className="dfield-over">
                 <div className="dfield-over__box">
@@ -878,19 +915,15 @@ function CardSlot({ card, kind }: { card: DuelCard | null; kind?: string }): JSX
 
 function Hand({ cards, actionable, nameOf, opponent = false }: { cards: DuelCard[]; actionable: Set<string>; nameOf: (c: number | null | undefined) => string; opponent?: boolean }): JSX.Element {
   const n = cards.length;
-  const center = (n - 1) / 2;
-  const step = n > 1 ? Math.min(8, 42 / (n - 1)) : 0;
   return (
     <div className={`dhand${opponent ? " dhand--opp" : ""}`}>
       {n === 0 && <span className="dhand__empty">— empty hand —</span>}
       {cards.map((c, i) => {
         const act = !opponent && actionable.has(`hand:${i}`);
-        const rot = (i - center) * step;
         return (
           <div
             key={i}
             className={`dhand__slot${act ? " is-actionable" : ""}`}
-            style={{ "--rot": `${rot}deg` } as CSSProperties}
             title={nameOf(c.code)}
             data-code={c.code ?? undefined}
             data-loc={opponent ? undefined : "hand"}

@@ -1,3 +1,5 @@
+import { LIMITS, DEFAULTS, useSettings, writeSetting, type AppSettings } from "../settings.ts";
+
 type Gesture = { keys: string[]; action: string };
 
 const DECK_GESTURES: Gesture[] = [
@@ -49,11 +51,68 @@ function GestureList({ items }: { items: Gesture[] }): JSX.Element {
   );
 }
 
+function Slider({ setting, label, hint, format }: {
+  setting: keyof AppSettings;
+  label: string;
+  hint: string;
+  format: (v: number) => string;
+}): JSX.Element {
+  const value = useSettings()[setting];
+  const { min, max, step } = LIMITS[setting];
+  return (
+    <div className="settings__row">
+      <div className="settings__row-text">
+        <label className="settings__label" htmlFor={setting}>{label}</label>
+        <p className="settings__hint">{hint}</p>
+      </div>
+      <div className="settings__control">
+        <input
+          id={setting}
+          className="settings__range"
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => writeSetting(setting, Number(e.target.value))}
+        />
+        <span className="settings__value">{format(value)}</span>
+        <button
+          className="btn settings__reset"
+          type="button"
+          onClick={() => writeSetting(setting, DEFAULTS[setting])}
+          disabled={value === DEFAULTS[setting]}
+        >
+          Reset
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Settings(): JSX.Element {
   const version = window.duel?.version ?? "—";
   return (
     <div className="settings">
       <h1>Settings</h1>
+
+      <section className="settings__section">
+        <h2 className="settings__heading">Duel Board</h2>
+        <div className="settings__rows">
+          <Slider
+            setting="boardScale"
+            label="Field size"
+            hint="Zooms the whole field — zones, cards, piles and counters all scale together. Above 100% the board can run past the window edges."
+            format={(v) => `${Math.round(v * 100)}%`}
+          />
+          <Slider
+            setting="boardTilt"
+            label="Board tilt"
+            hint="How far the field leans away from you. 0° is flat top-down; higher angles give it more depth."
+            format={(v) => `${v}°`}
+          />
+        </div>
+      </section>
 
       <section className="settings__section">
         <h2 className="settings__heading">About</h2>
@@ -75,7 +134,6 @@ export function Settings(): JSX.Element {
         <GestureList items={DUEL_GESTURES} />
       </section>
 
-      <p className="settings__note">More settings coming soon.</p>
     </div>
   );
 }
