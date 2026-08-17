@@ -20,7 +20,7 @@ const PHASES: { key: DuelPhase; label: string }[] = [
 ];
 
 type Mods = { shift: boolean; meta: boolean; ctrl: boolean };
-type DragState = { seq: number; code: number | null; isMonster: boolean; x: number; y: number; valid: boolean; mods: Mods; hint: string };
+type DragState = { seq: number; code: number | null; isMonster: boolean; x: number; y: number; valid: boolean; mods: Mods; hint: string; overKey: string | null };
 
 const readMods = (e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }): Mods =>
   ({ shift: e.shiftKey, meta: e.metaKey, ctrl: e.ctrlKey });
@@ -143,6 +143,11 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
   useEffect(() => { setMenu(null); setPlacing(null); }, [prompt?.id]);
 
   const [drag, setDrag] = useState<DragState | null>(null);
+  // A dropped card that found no play flies back to its slot instead of blinking
+  // out. `at` starts on the cursor and is moved to the slot on the next frame so
+  // the CSS transition has two positions to interpolate between.
+  const [flyBack, setFlyBack] = useState<{ seq: number; code: number | null; at: { x: number; y: number } } | null>(null);
+  const flyTimer = useRef<number | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const [press, setPress] = useState<{ x: number; y: number; k: number } | null>(null);
   const pressRef = useRef<{ timer: number; raf: number; start: number; x: number; y: number } | null>(null);
@@ -391,6 +396,21 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
 
   const respond = (r: DuelResponse) => window.duel.match.respond(r);
 
+  /** Animate a released card back to the hand slot it came from. */
+  const returnToHand = (ds: DragState) => {
+    const slot = document.querySelector<HTMLElement>(`[data-loc="hand"][data-seq="${ds.seq}"]`);
+    if (!slot) return;
+    const r = slot.getBoundingClientRect();
+    const home = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    setFlyBack({ seq: ds.seq, code: ds.code, at: { x: ds.x, y: ds.y } });
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => setFlyBack((f) => (f ? { ...f, at: home } : null)));
+    });
+    if (flyTimer.current) window.clearTimeout(flyTimer.current);
+    flyTimer.current = window.setTimeout(() => setFlyBack(null), 260);
+  };
+  useEffect(() => () => { if (flyTimer.current) window.clearTimeout(flyTimer.current); }, []);
+
   const cancelPress = () => {
     const p = pressRef.current;
     if (p) { clearTimeout(p.timer); cancelAnimationFrame(p.raf); pressRef.current = null; }
@@ -432,7 +452,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
     const isMonster = code != null && /Monster/i.test(cardsRef.current.get(code)?.type ?? "");
     const start = { x: e.clientX, y: e.clientY };
     const handOpts = prompt?.kind === "idle" ? prompt.options.filter((o) => o.loc === "hand" && o.seq === seq) : [];
-    dragRef.current = { seq, code, isMonster, x: start.x, y: start.y, valid: false, mods: readMods(e), hint: dragHint(handOpts, isMonster, readMods(e)) };
+    dragRef.current = { seq, code, isMonster, x: start.x, y: start.y, valid: false, mods: readMods(e), hint: dragHint(handOpts, isMonster, readMods(e)), overKey: null };
     let active = false;
 
     const onMove = (ev: PointerEvent) => {
@@ -444,28 +464,57 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
         return;
       }
       active = true;
-      const loc = zoneAtPoint(ev.clientX, ev.clientY).loc;
+      const { loc, seq: overSeq } = zoneAtPoint(ev.clientX, ev.clientY);
       const valid = !!gestureOption(handOpts, ds.isMonster, loc, mods);
-      const next: DragState = { ...ds, x: ev.clientX, y: ev.clientY, valid, mods, hint: dragHint(handOpts, ds.isMonster, mods) };
+      const next: DragState = {
+        ...ds, x: ev.clientX, y: ev.clientY, valid, mods,
+        hint: dragHint(handOpts, ds.isMonster, mods),
+        overKey: valid && loc && Number.isFinite(overSeq) ? `${loc}:${overSeq}` : null,
+      };
       dragRef.current = next;
       setDrag(next);
     };
+    // Shift/Ctrl/Cmd change what the drop will DO, so the highlight has to follow
+    // the key itself. Reading modifiers only on pointermove meant releasing Shift
+    // without moving the mouse left the board showing the old intent.
+    const onModKey = (ev: KeyboardEvent) => {
+      const ds = dragRef.current;
+      if (!ds) return;
+      const mods = { shift: ev.shiftKey, meta: ev.metaKey, ctrl: ev.ctrlKey };
+      if (mods.shift === ds.mods.shift && mods.meta === ds.mods.meta && mods.ctrl === ds.mods.ctrl) return;
+      const { loc, seq: overSeq } = zoneAtPoint(ds.x, ds.y);
+      const valid = !!gestureOption(handOpts, ds.isMonster, loc, mods);
+      const next: DragState = {
+        ...ds,
+        mods,
+        valid,
+        hint: dragHint(handOpts, ds.isMonster, mods),
+        overKey: valid && loc && Number.isFinite(overSeq) ? `${loc}:${overSeq}` : null,
+      };
+      dragRef.current = next;
+      if (active) setDrag(next);
+    };
+
     const onUp = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("keydown", onModKey);
+      window.removeEventListener("keyup", onModKey);
       const ds = dragRef.current;
       dragRef.current = null;
       setDrag(null);
       if (!ds || !active) return;
       suppressClickRef.current = true;
-      if (!prompt || prompt.kind !== "idle") return;
+      if (!prompt || prompt.kind !== "idle") { returnToHand(ds); return; }
       const { loc, seq: dropSeq } = zoneAtPoint(ev.clientX, ev.clientY);
       const opts = prompt.options.filter((o) => o.loc === "hand" && o.seq === ds.seq);
       const opt = gestureOption(opts, ds.isMonster, loc, readMods(ev));
-      if (!opt) return;
+      if (!opt) { returnToHand(ds); return; }
       pendingPlaceRef.current = loc === "mzone" ? `m:${dropSeq}` : loc === "szone" ? `s:${dropSeq}` : "*";
       respond({ promptId: prompt.id, type: "option", id: opt.id });
     };
     window.addEventListener("pointermove", onMove);
+    window.addEventListener("keydown", onModKey);
+    window.addEventListener("keyup", onModKey);
     window.addEventListener("pointerup", onUp, { once: true });
   };
 
@@ -499,7 +548,9 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
   const me = state.players[0];
   const opp = state.players[1];
 
-  const dragCls = drag ? (drag.isMonster ? " is-drag-mon" : " is-drag-st") : "";
+  const dragCls =
+    (drag ? (drag.isMonster ? " is-drag-mon" : " is-drag-st") : "") +
+    (drag && drag.isMonster && drag.mods.shift ? " is-drag-setmon" : "");
 
   return (
     <div
@@ -529,6 +580,13 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
             setMenu(null);
           }}
         />
+      )}
+      {flyBack && flyBack.code != null && (
+        <div className="ddrag ddrag--home" style={{ left: flyBack.at.x, top: flyBack.at.y }}>
+          <div className="ddrag__card">
+            <CardArt code={flyBack.code} alt="" />
+          </div>
+        </div>
       )}
       {drag && drag.code != null && (
         <div className="ddrag" style={{ left: drag.x, top: drag.y }}>
@@ -587,7 +645,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
               {format !== "genesys" && (
                 <ExtraMonsterZones cards={[me.monsters[5] ?? null, me.monsters[6] ?? null]} actionable={actionable} targets={boardTargets} nameOf={nameOf} />
               )}
-              <PlayerSide who="You" p={me} active={state.turnPlayer === 0} nameOf={nameOf} local actionable={actionable} targets={boardTargets} extraReady={extraSummon.size > 0} />
+              <PlayerSide who="You" p={me} active={state.turnPlayer === 0} nameOf={nameOf} local actionable={actionable} targets={boardTargets} extraReady={extraSummon.size > 0} dropKey={drag ? drag.overKey : null} />
             </div>
             {state.over && (
               <div className="dfield-over">
@@ -610,7 +668,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
             {dice && <DiceRoll key={dice.id} results={dice.results} />}
           </div>
 
-          <Hand cards={me.hand} nameOf={nameOf} actionable={actionable} />
+          <Hand cards={me.hand} nameOf={nameOf} actionable={actionable} draggingSeq={drag ? drag.seq : flyBack ? flyBack.seq : null} />
         </div>
       </div>
 
@@ -797,14 +855,14 @@ function PhaseTrack({ phase }: { phase: DuelPhase }): JSX.Element {
   );
 }
 
-function PlayerSide({ who, p, flip, active, local = false, actionable, targets, nameOf, extraReady = false }: { who: string; p: DuelState["players"][number]; flip?: boolean; active?: boolean; local?: boolean; actionable: Set<string>; targets: Set<string>; nameOf: (c: number | null | undefined) => string; extraReady?: boolean }): JSX.Element {
+function PlayerSide({ who, p, flip, active, local = false, actionable, targets, nameOf, extraReady = false, dropKey = null }: { who: string; p: DuelState["players"][number]; flip?: boolean; active?: boolean; local?: boolean; actionable: Set<string>; targets: Set<string>; nameOf: (c: number | null | undefined) => string; extraReady?: boolean; dropKey?: string | null }): JSX.Element {
   const rowCls = `duelboard__row${flip ? " duelboard__row--rev" : ""}`;
   const owner = local ? 0 : 1;
   const monsterRow = (
     <div className={rowCls}>
       <div className="dzone-spacer" aria-hidden="true" />
       <FieldZone card={p.field} nameOf={nameOf} local={local} actionable={actionable} />
-      <ZoneCells kind="mon" cards={p.monsters.slice(0, 5)} nameOf={nameOf} local={local} actionable={actionable} targets={targets} />
+      <ZoneCells kind="mon" cards={p.monsters.slice(0, 5)} nameOf={nameOf} local={local} actionable={actionable} targets={targets} dropKey={dropKey} />
       <Pile kind="grave" label="Graveyard" count={p.graveCount} faceCode={p.graveTop} owner={owner} />
       <Pile kind="banish" label="Banished Zone" count={p.banishCount} owner={owner} />
     </div>
@@ -813,7 +871,7 @@ function PlayerSide({ who, p, flip, active, local = false, actionable, targets, 
     <div className={rowCls}>
       <div className="dzone-spacer" aria-hidden="true" />
       <Pile kind="extra" label="Extra Deck" count={p.extraCount} extraLocal={local} summonReady={local && extraReady} />
-      <ZoneCells kind="st" cards={p.spells} nameOf={nameOf} local={local} actionable={actionable} targets={targets} />
+      <ZoneCells kind="st" cards={p.spells} nameOf={nameOf} local={local} actionable={actionable} targets={targets} dropKey={dropKey} />
       <Pile kind="deck" label="Deck" count={p.deckCount} deckLocal={local} />
       <div className="dzone-spacer" aria-hidden="true" />
     </div>
@@ -831,17 +889,19 @@ function PlayerSide({ who, p, flip, active, local = false, actionable, targets, 
   );
 }
 
-function ZoneCells({ kind, cards, local, actionable, targets, nameOf }: { kind: "mon" | "st"; cards: (DuelCard | null)[]; local?: boolean; actionable: Set<string>; targets: Set<string>; nameOf: (c: number | null | undefined) => string }): JSX.Element {
+function ZoneCells({ kind, cards, local, actionable, targets, nameOf, dropKey = null }: { kind: "mon" | "st"; cards: (DuelCard | null)[]; local?: boolean; actionable: Set<string>; targets: Set<string>; nameOf: (c: number | null | undefined) => string; dropKey?: string | null }): JSX.Element {
   const loc = kind === "mon" ? "mzone" : "szone";
   return (
     <>
       {cards.map((c, i) => {
         const act = local && actionable.has(`${loc}:${i}`);
         const target = local && targets.has(`${loc}:${i}`);
+        // The one zone the cursor is over and the card can legally land in.
+        const isDrop = local && dropKey === `${loc}:${i}`;
         return (
           <div
             key={i}
-            className={`dzone dzone--${kind}${act ? " is-actionable" : ""}${target ? " is-target" : ""}`}
+            className={`dzone dzone--${kind}${act ? " is-actionable" : ""}${target ? " is-target" : ""}${isDrop ? " is-drop" : ""}`}
             title={c ? nameOf(c.code) : ""}
             data-code={c?.code ?? undefined}
             data-loc={local ? loc : undefined}
@@ -870,6 +930,46 @@ function FieldZone({ card, local, actionable, nameOf }: { card: DuelCard | null;
   );
 }
 
+/**
+ * A pile's thickness, built as real 3D geometry instead of a fake 2D shadow.
+ *
+ * The mat is rotated in 3D (transform-style: preserve-3d), so a stack rendered
+ * with translateZ rises off the table and is foreshortened by the same camera as
+ * everything else. A box-shadow offset in screen space cannot do that — it slid
+ * diagonally out of the zone no matter what the board's tilt was, which is why
+ * it looked wrong.
+ *
+ * Scale comes from the real card: 59 x 86 mm, 0.305 mm thick, so one card is
+ * 0.305/59 = 0.517% of the card's WIDTH. EXAGGERATION lifts that to something
+ * readable on screen; 1 is physically exact.
+ */
+const CARD_WIDTH_MM = 59;
+const CARD_THICKNESS_MM = 0.305;
+// 1.0 = physically exact. At our render size a 40-card deck is already ~13px of
+// edge, which is plenty — the earlier 2.6-3.4x is what turned it into a wedge.
+const STACK_EXAGGERATION = 1;
+const STACK_PER_CARD = (CARD_THICKNESS_MM / CARD_WIDTH_MM) * STACK_EXAGGERATION;
+
+function StackLayers({ count }: { count: number }): JSX.Element | null {
+  if (count <= 1) return null;
+  // Stack height as a fraction of --card-w, straight from the real card.
+  const h = (STACK_PER_CARD * Math.min(count, 60)).toFixed(5);
+  return (
+    <div
+      className="dstack"
+      aria-hidden="true"
+      style={{ "--stack-h": `calc(var(--card-w) * ${h})` } as CSSProperties}
+    >
+      <div className="dstack__front" />
+      {/* Both sides are drawn; backface culling shows only the one actually
+          facing the camera, so a pile on the right of the board reveals its
+          left face and one on the left reveals its right. */}
+      <div className="dstack__side dstack__side--left" />
+      <div className="dstack__side dstack__side--right" />
+    </div>
+  );
+}
+
 function Pile({ kind, label, count, deckLocal, extraLocal, faceCode, summonReady, owner }: { kind: string; label: string; count: number; deckLocal?: boolean; extraLocal?: boolean; faceCode?: number | null; summonReady?: boolean; owner?: number }): JSX.Element {
   const showCount = count > 0 && kind !== "deck" && kind !== "extra" && kind !== "grave";
   const viewable = (kind === "grave" || kind === "banish") && count > 0 && owner != null;
@@ -887,7 +987,11 @@ function Pile({ kind, label, count, deckLocal, extraLocal, faceCode, summonReady
       data-pile={viewable ? kind : undefined}
       data-owner={viewable ? owner : undefined}
     >
-      <div className={`dslot dslot--${kind}`}>
+      <div
+        className={`dslot dslot--${kind}${count > 1 ? " has-stack" : ""}`}
+        style={{ "--stack-h": `calc(var(--card-w) * ${(STACK_PER_CARD * Math.min(count, 60)).toFixed(5)})` } as CSSProperties}
+      >
+        <StackLayers count={count} />
         {faceCode != null
           ? <CardArt code={faceCode} alt={label} />
           : count > 0 && <img className="dcard__art" src={cardBack} alt={label} />}
@@ -913,17 +1017,21 @@ function CardSlot({ card, kind }: { card: DuelCard | null; kind?: string }): JSX
   );
 }
 
-function Hand({ cards, actionable, nameOf, opponent = false }: { cards: DuelCard[]; actionable: Set<string>; nameOf: (c: number | null | undefined) => string; opponent?: boolean }): JSX.Element {
+function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null }: { cards: DuelCard[]; actionable: Set<string>; nameOf: (c: number | null | undefined) => string; opponent?: boolean; draggingSeq?: number | null }): JSX.Element {
   const n = cards.length;
   return (
     <div className={`dhand${opponent ? " dhand--opp" : ""}`}>
       {n === 0 && <span className="dhand__empty">— empty hand —</span>}
       {cards.map((c, i) => {
         const act = !opponent && actionable.has(`hand:${i}`);
+        // The card being dragged rides the cursor, so hide the one still in the
+        // hand — otherwise it reads as a duplicate. The slot keeps its space, so
+        // the rest of the hand doesn't shuffle sideways mid-drag.
+        const lifted = draggingSeq === i;
         return (
           <div
             key={i}
-            className={`dhand__slot${act ? " is-actionable" : ""}`}
+            className={`dhand__slot${act ? " is-actionable" : ""}${lifted ? " is-lifted" : ""}`}
             title={nameOf(c.code)}
             data-code={c.code ?? undefined}
             data-loc={opponent ? undefined : "hand"}

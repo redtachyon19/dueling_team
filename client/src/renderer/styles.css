@@ -1103,7 +1103,7 @@ h1 {
 
 .dslot {
   position: relative; width: var(--card-w); height: var(--card-h);
-  border: none; background: none;
+  border: 1px solid transparent; background: none;
   display: flex; align-items: center; justify-content: center;
 }
 /* The card sits in the zone; only it rotates (the dashed frame stays portrait). */
@@ -1140,18 +1140,70 @@ h1 {
 /* piles: deck / extra / graveyard / banished — grey gradient frame (same
    border-image treatment as the monster/spell zones), with each pile's dashed
    slot keeping its own accent colour. */
-.dzone--pile { border-image: none; }
+/* The stack is real geometry in the mat's 3D space, so every ancestor between
+   the mat and the layers has to keep that space alive — one flat ancestor and
+   the layers collapse back onto the table. */
+.duelboard__side, .duelboard__row, .dzone, .dzone--pile .dslot { transform-style: preserve-3d; }
+
+.dzone--pile { border-image: none; position: relative; z-index: 3; }
+
+/* Layers sit BEHIND the top card and rise toward the viewer, so the pile reads
+   as a card resting on a stack rather than a card sliding off one. */
+/* A real box: the top card is lifted --stack-h off the table, and two quads
+   stand between it and the table to form the deck's visible sides. Because they
+   live in the mat's 3D space they foreshorten with the board — at tilt 0 you
+   look straight down and correctly see almost no side at all. */
+/* Raised to the top card's height, so the faces hang from the card DOWN to the
+   table. Left at z=0 they hung from the table downwards instead — the pile sat
+   under the board with the top card floating above it. */
+.dstack {
+  position: absolute; inset: 0; pointer-events: none;
+  transform-style: preserve-3d;
+  transform: translateZ(var(--stack-h));
+}
+
+/* Front face: hangs off the card's bottom edge down to the table. */
+.dstack__front {
+  position: absolute; left: 0; right: 0; top: 100%;
+  height: var(--stack-h);
+  transform-origin: top center;
+  transform: rotateX(-90deg);
+  background: repeating-linear-gradient(to bottom, #f2f5f9 0 1.2px, #aeb7c4 1.2px 2.4px);
+  border-radius: 0 0 2px 2px;
+}
+/* Side faces, hinged off the card's left and right edges. Only the one turned
+   toward the camera renders — backface-visibility culls the other — so the deck
+   shows the correct side wherever it sits on the board without any per-pile
+   position logic. */
+.dstack__side {
+  position: absolute; top: 0; bottom: 0;
+  width: var(--stack-h);
+  backface-visibility: hidden;
+  background: repeating-linear-gradient(to right, #e6ebf2 0 1.2px, #99a3b2 1.2px 2.4px);
+}
+.dstack__side--right { left: 100%; transform-origin: left center; transform: rotateY(90deg); }
+.dstack__side--left { right: 100%; transform-origin: right center; transform: rotateY(-90deg); }
+
+/* The pile's card art IS the top of the stack, so raise it by the full height. */
+.dzone--pile .dslot.has-stack > .dcard__art,
+.dzone--pile .dslot.has-stack > .dcard {
+  transform: translateZ(var(--stack-h));
+}
 .dzone--pile .dslot {
   border: 1px solid rgba(150, 190, 255, 0.16); border-radius: 3px;
   background: rgba(6, 12, 22, 0.45);
 }
-.dzone--pile .dslot { overflow: hidden; }
+/* was overflow:hidden — it clipped the stack layers back inside the card */
+.dzone--pile .dslot { overflow: visible; }
 .dslot--deck { border-color: #6a6f76; }    /* main deck — grey */
 .dslot--grave { border-color: #6a6f76; }   /* graveyard — grey */
 .dslot--extra { border-color: #8a6fc0; }   /* extra deck — purple */
 .dslot--banish { border-color: #c0444a; }  /* banishment — red */
-.dzone--pile .dcard__art { opacity: 0.7; }
-.dzone--grave .dcard__art { opacity: 1; } /* face-up graveyard card reads clearly */
+/* Opaque: the top card sits on a physical stack now, so any transparency lets
+   the pale card edges behind it bleed through and wash the art out. It also has
+   to paint ABOVE the stack layers, which are absolutely positioned siblings. */
+.dzone--pile .dcard__art { opacity: 1; position: relative; z-index: 1; }
+.dzone--pile .dslot__count { position: relative; z-index: 2; }
 
 /* Banished sits right next to the Graveyard — each pile is a full square cell,
    so without this they read as two unrelated boxes. The opponent's rows are
@@ -1232,6 +1284,8 @@ h1 {
   width: 100%; height: 100%;
   transition: transform 140ms ease;
 }
+/* Card is on the cursor: leave its gap in the hand but don't draw it twice. */
+.dhand__slot.is-lifted { opacity: 0; }
 .dhand__slot:hover { z-index: 50; }
 .dhand__slot:hover .dhand__card { transform: translateY(-26px) scale(1.14); }
 /* A card the current prompt can act on gets a warm rim so the playable cards
@@ -1247,6 +1301,16 @@ h1 {
 
 /* Drag ghost: a card that follows the cursor while dragging from the hand. */
 .ddrag { position: fixed; z-index: 200; pointer-events: none; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+/* Released with nowhere to go: glide back to the hand slot instead of vanishing
+   on the spot. Slight overshoot easing so it settles rather than stopping dead. */
+.ddrag--home {
+  transition: left 220ms cubic-bezier(0.22, 0.9, 0.28, 1), top 220ms cubic-bezier(0.22, 0.9, 0.28, 1);
+}
+.ddrag--home .ddrag__card { animation: ddrag-settle 220ms cubic-bezier(0.22, 0.9, 0.28, 1) forwards; }
+@keyframes ddrag-settle {
+  from { transform: scale(1.04); opacity: 0.95; }
+  to   { transform: scale(1); opacity: 1; }
+}
 .ddrag__card {
   width: var(--card-w); height: var(--card-h);
   filter: drop-shadow(0 8px 14px #000a);
@@ -1268,7 +1332,25 @@ h1 {
    the square zone frame). */
 .duelboard.is-drag-mon [data-loc="mzone"] .dslot,
 .duelboard.is-drag-st [data-loc="szone"] .dslot,
-.duelboard.is-drag-st [data-loc="fzone"] .dslot { border-color: #5cf; box-shadow: 0 0 8px #5cf8; }
+.duelboard.is-drag-st [data-loc="fzone"] .dslot {
+  border-color: #5cf; box-shadow: 0 0 8px #5cf8;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+/* The zone under the cursor fills in, so it's obvious which cell the card is
+   about to land in rather than every legal zone looking equally likely. The
+   fill follows the Set rotation below for free, since it's the same element. */
+.duelboard .dzone.is-drop .dslot {
+  border-color: #7fd8ff;
+  background: rgba(92, 204, 255, 0.22);
+  box-shadow: 0 0 0 1px #7fd8ff, 0 0 16px rgba(92, 204, 255, 0.55), inset 0 0 22px rgba(92, 204, 255, 0.25);
+}
+
+/* Shift = Set, which lands the monster face-down in DEFENCE — so the outline
+   that lights up is the horizontal footprint the card will actually occupy,
+   matching --rot-scale so it lines up with where the card ends up. */
+.duelboard.is-drag-setmon [data-loc="mzone"] .dslot:not(:has(.dcard)) {
+  transform: rotate(90deg) scale(var(--rot-scale, 1));
+}
 
 /* Long-press-to-surrender ring, centered on the press point over the deck. */
 .dsurrender { position: fixed; z-index: 200; pointer-events: none; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 4px; }
