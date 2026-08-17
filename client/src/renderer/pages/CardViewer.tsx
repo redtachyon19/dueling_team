@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { supertypeOf } from "../cards/search.ts";
 import type { ArtworkTile } from "../cards/search.ts";
 import cardBack from "../../../../ui/assets/sleeves/original_card_sleeve.png";
+import { cardTilt } from "../card-tilt.ts";
 
 export function CardViewer({
   tile,
@@ -15,7 +16,9 @@ export function CardViewer({
   if (!tile) {
     return (
       <aside className="cards__viewer">
-        <img className="cards__viewer-art" src={cardBack} alt="Card back" />
+        <div className="cards__viewer-art-wrap" {...cardTilt()}>
+          <img className="cards__viewer-art" src={cardBack} alt="Card back" />
+        </div>
       </aside>
     );
   }
@@ -29,8 +32,8 @@ export function CardViewer({
 
   return (
     <aside className="cards__viewer">
-      <div className="cards__viewer-art-wrap">
-        <BigArt id={imageId} name={card.name} />
+      <div className="cards__viewer-art-wrap" {...cardTilt()}>
+        <FlipCard front={<BigArt id={imageId} name={card.name} />} resetKey={imageId} />
         {pinLabel && (
           <span className="viewer__pin" title="Shift+Arrow to select more; click again to unpin">
             📌 {pinLabel}
@@ -49,6 +52,39 @@ export function CardViewer({
         <p className="cards__viewer-desc">{card.desc}</p>
       </div>
     </aside>
+  );
+}
+
+/**
+ * Click to turn the card over. The flip lives on an inner element so it composes
+ * with the wrapper's cursor tilt instead of fighting it, and both faces are
+ * backface-hidden so only the one pointing at you is drawn.
+ */
+function FlipCard({ front, resetKey }: { front: ReactNode; resetKey: number }): JSX.Element {
+  const [flipped, setFlipped] = useState(false);
+  // Show the new card's face when the viewer switches cards.
+  useEffect(() => setFlipped(false), [resetKey]);
+  const toggle = () => setFlipped((f) => !f);
+  return (
+    <div
+      className={`viewer__flip${flipped ? " is-flipped" : ""}`}
+      onClick={toggle}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          toggle();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      aria-pressed={flipped}
+      title={flipped ? "Click to turn back over" : "Click to turn the card over"}
+    >
+      <div className="viewer__face viewer__face--front">{front}</div>
+      <div className="viewer__face viewer__face--back">
+        <img className="cards__viewer-art" src={cardBack} alt="Card back" />
+      </div>
+    </div>
   );
 }
 

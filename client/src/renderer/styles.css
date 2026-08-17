@@ -651,7 +651,54 @@ h1 {
 .editor__body { flex: 1; min-height: 0; display: flex; gap: 14px; }
 /* Pinned indicator overlaid on the viewer art (shared by both card viewers).
    align-self keeps the wrapper sized to the card so the badge hugs its corner. */
-.cards__viewer-art-wrap { position: relative; align-self: flex-start; }
+/* Perspective lives on the parent and the WRAP is what rotates, so the art, the
+   glare and the pin all tilt as one object. Tilting only the <img> left the
+   overlay flat, and its square edge showed as a grey ghost of the card. */
+.cards__viewer { perspective: 1400px; }
+.cards__viewer-art-wrap {
+  position: relative; align-self: flex-start;
+  transform-style: preserve-3d;
+  transition: transform 90ms ease-out;
+  transform: rotateX(var(--tilt-rx, 0deg)) rotateY(var(--tilt-ry, 0deg));
+}
+.cards__viewer-art-wrap .cards__viewer-art { transition: box-shadow 160ms ease; }
+
+/* Click-to-flip. Nested inside the tilting wrapper so the two transforms
+   compose — the card keeps following the cursor while it turns over. */
+.viewer__flip {
+  position: relative;
+  width: 294px; height: 429px;
+  transform-style: preserve-3d;
+  transition: transform 520ms cubic-bezier(0.2, 0.75, 0.25, 1);
+  cursor: pointer;
+}
+.viewer__flip.is-flipped { transform: rotateY(180deg); }
+.viewer__flip:focus-visible { outline: 2px solid #5cf; outline-offset: 3px; }
+.viewer__face {
+  position: absolute; inset: 0;
+  backface-visibility: hidden;
+}
+.viewer__face--back { transform: rotateY(180deg); }
+.viewer__face .cards__viewer-art { width: 100%; height: 100%; }
+.cards__viewer-art-wrap:hover .cards__viewer-art {
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+}
+/* Cursor-tracked specular sweep, matching the hand's. */
+.cards__viewer-art-wrap::after {
+  content: "";
+  position: absolute; inset: 0;
+  opacity: 0;
+  transition: opacity 160ms ease;
+  background: radial-gradient(
+    circle at var(--glare-x, 50%) var(--glare-y, 50%),
+    rgba(255, 255, 255, 0.24),
+    rgba(255, 255, 255, 0.06) 40%,
+    transparent 64%
+  );
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+.cards__viewer-art-wrap:hover::after { opacity: 1; }
 .viewer__pin {
   position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 4px;
   background: #1a1407cc; border: 1px solid #f0c14b; color: #f0c14b;
@@ -1281,13 +1328,50 @@ h1 {
    never moves on hover, so the cursor can't slip off the card and make it
    flicker. Only the inner visual lifts. */
 .dhand__card {
+  position: relative;
   width: 100%; height: 100%;
-  transition: transform 140ms ease;
+  /* Short, so the tilt tracks the cursor rather than lagging behind it, but long
+     enough that letting go settles instead of snapping. */
+  transition: transform 90ms ease-out;
+  transform: perspective(760px) rotateX(var(--tilt-rx, 0deg)) rotateY(var(--tilt-ry, 0deg));
 }
+/* Drawn card: flies from the deck into its hand slot. `backwards` holds it at
+   the deck for its stagger delay, so the five opening cards arrive one by one
+   instead of all popping at once. */
+@keyframes hand-draw {
+  from { transform: translate(var(--draw-dx, 0), var(--draw-dy, 0)) scale(0.7) rotate(-10deg); opacity: 0; }
+  35%  { opacity: 1; }
+  to   { transform: translate(0, 0) scale(1) rotate(0deg); opacity: 1; }
+}
+.dhand__slot.is-drawing {
+  animation: hand-draw 400ms cubic-bezier(0.22, 0.85, 0.3, 1) backwards;
+  animation-delay: var(--draw-delay, 0ms);
+  z-index: 40;
+}
+
 /* Card is on the cursor: leave its gap in the hand but don't draw it twice. */
 .dhand__slot.is-lifted { opacity: 0; }
 .dhand__slot:hover { z-index: 50; }
-.dhand__slot:hover .dhand__card { transform: translateY(-26px) scale(1.14); }
+.dhand__slot:hover .dhand__card {
+  transform: perspective(760px)
+    translateY(-26px) scale(1.12)
+    rotateX(var(--tilt-rx, 0deg)) rotateY(var(--tilt-ry, 0deg));
+}
+/* Specular sweep following the cursor, so the tilt reads as a lit surface rather
+   than a flat plane being rotated. */
+.dhand__slot:hover .dhand__card::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: radial-gradient(
+    circle at var(--glare-x, 50%) var(--glare-y, 50%),
+    rgba(255, 255, 255, 0.30),
+    rgba(255, 255, 255, 0.07) 38%,
+    transparent 62%
+  );
+  mix-blend-mode: screen;
+  pointer-events: none;
+  border-radius: 4px;
+}
 /* A card the current prompt can act on gets a warm rim so the playable cards
    read at a glance instead of needing a hover. */
 .dhand__slot.is-actionable .dhand__card {

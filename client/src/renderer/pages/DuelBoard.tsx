@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { CardData, DuelCard, DuelDifficulty, DuelEvent, DuelFormat, DuelOption, DuelPhase, DuelPrompt, DuelResponse, DuelState, DuelUpdate, PromptCard } from "@duel/shared";
 import cardBack from "../../../../ui/assets/sleeves/original_card_sleeve.png";
 import { toLogEntries } from "../cards/duel-log.ts";
 import { CardViewer } from "./CardViewer.tsx";
 import { useSettings } from "../settings.ts";
 import { useTabActive } from "../tab-active.ts";
+import { cardTilt } from "../card-tilt.ts";
 
 const EMPTY_SET: Set<string> = new Set();
 
@@ -980,7 +981,7 @@ function Pile({ kind, label, count, deckLocal, extraLocal, faceCode, summonReady
     <div
       className={`dzone dzone--pile dzone--${kind}${(kind === "extra" && extraLocal) || viewable ? " is-browsable" : ""}${summonReady ? " is-summon-ready" : ""}`}
       title={title}
-      data-deck={kind === "deck" && deckLocal ? "local" : undefined}
+      data-deck={kind === "deck" ? (deckLocal ? "local" : "opp") : undefined}
       data-extra={kind === "extra" && extraLocal ? "local" : undefined}
       data-pile={viewable ? kind : undefined}
       data-owner={viewable ? owner : undefined}
@@ -1015,10 +1016,56 @@ function CardSlot({ card, kind }: { card: DuelCard | null; kind?: string }): JSX
   );
 }
 
+/** How far apart consecutive draws fire, and how long each card is in flight. */
+const DRAW_STAGGER_MS = 95;
+const DRAW_FLIGHT_MS = 400;
+
+type DrawAnim = { dx: number; dy: number; delay: number };
+
 function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null }: { cards: DuelCard[]; actionable: Set<string>; nameOf: (c: number | null | undefined) => string; opponent?: boolean; draggingSeq?: number | null }): JSX.Element {
   const n = cards.length;
+
+  // Cards that just entered the hand fly in from the deck instead of appearing.
+  // The offset is measured from the real deck and slot boxes, so it stays right
+  // at any board scale/tilt, and it is applied as state rather than an imperative
+  // class — React re-renders the hand constantly and would wipe the latter.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const prevCount = useRef(0);
+  const [draws, setDraws] = useState<Map<number, DrawAnim>>(new Map());
+
+  useLayoutEffect(() => {
+    const grew = n - prevCount.current;
+    prevCount.current = n;
+    if (grew <= 0 || !rootRef.current) return;
+    const deck = document.querySelector(opponent ? '[data-deck="opp"]' : '[data-deck="local"]');
+    if (!deck) return;
+    const d = deck.getBoundingClientRect();
+    const slots = rootRef.current.querySelectorAll<HTMLElement>(".dhand__slot");
+    const next = new Map<number, DrawAnim>();
+    const first = n - grew;
+    for (let i = first; i < n; i++) {
+      const el = slots[i];
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      next.set(i, {
+        dx: d.left + d.width / 2 - (r.left + r.width / 2),
+        dy: d.top + d.height / 2 - (r.top + r.height / 2),
+        delay: (i - first) * DRAW_STAGGER_MS,
+      });
+    }
+    if (next.size === 0) return;
+    setDraws(next);
+    const total = DRAW_FLIGHT_MS + (next.size - 1) * DRAW_STAGGER_MS + 60;
+    const t = window.setTimeout(() => setDraws(new Map()), total);
+    return () => window.clearTimeout(t);
+  }, [n, opponent]);
+
+  // Disabled for the opponent's (non-interactive) hand and while dragging, so a
+  // card being pulled out doesn't wobble.
+  const tiltProps = opponent || draggingSeq !== null ? {} : cardTilt();
+
   return (
-    <div className={`dhand${opponent ? " dhand--opp" : ""}`}>
+    <div className={`dhand${opponent ? " dhand--opp" : ""}`} ref={rootRef}>
       {n === 0 && <span className="dhand__empty">— empty hand —</span>}
       {cards.map((c, i) => {
         const act = !opponent && actionable.has(`hand:${i}`);
@@ -1026,10 +1073,13 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null 
         // hand — otherwise it reads as a duplicate. The slot keeps its space, so
         // the rest of the hand doesn't shuffle sideways mid-drag.
         const lifted = draggingSeq === i;
+        const draw = draws.get(i);
         return (
           <div
             key={i}
-            className={`dhand__slot${act ? " is-actionable" : ""}${lifted ? " is-lifted" : ""}`}
+            className={`dhand__slot${act ? " is-actionable" : ""}${lifted ? " is-lifted" : ""}${draw ? " is-drawing" : ""}`}
+            style={draw ? ({ "--draw-dx": `${draw.dx}px`, "--draw-dy": `${draw.dy}px`, "--draw-delay": `${draw.delay}ms` } as CSSProperties) : undefined}
+            {...tiltProps}
             title={nameOf(c.code)}
             data-code={c.code ?? undefined}
             data-loc={opponent ? undefined : "hand"}
