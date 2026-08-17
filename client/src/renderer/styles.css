@@ -1081,8 +1081,13 @@ h1 {
   border: none; background: none;
 }
 .dzone--mon::before, .dzone--st::before {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  --arm: 30%;
+  content: ""; position: absolute; pointer-events: none;
+  /* inset -1px so each arm STRADDLES the cell edge. Butted against a neighbour,
+     the two cells' arms then land on exactly the same pixels and overlap; at
+     inset 0 they sat side by side and the shared lines rendered 4px against
+     2px on the outer edges. */
+  inset: -1px;
+  --arm: 15%;
   --k: #4db8ff;
   background:
     linear-gradient(var(--k), var(--k)) 0 0 / var(--arm) 2px no-repeat,
