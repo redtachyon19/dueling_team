@@ -6,7 +6,7 @@
 //
 // Repairs a set whose card count is short of what Yugipedia lists. For the
 // given set code it reads Yugipedia's TCG-EN set card list, finds every print
-// number missing from assets/cards/db.json, and ADDS it:
+// number missing from engine/cards/db.json, and ADDS it:
 //   - if the card already exists (by name) → attaches the missing print to it
 //     (e.g. an alternate/"stamp artwork" reprint YGOPRODeck didn't record);
 //   - if the card is missing entirely → fetches it from YGOPRODeck, normalizes

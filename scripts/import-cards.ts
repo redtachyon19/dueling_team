@@ -3,11 +3,20 @@
 // BUILD-TIME ONLY. Run manually by Red.
 //
 //   pnpm import:cards
+//   pnpm import:cards --include-unreleased   # keep not-yet-released sets
+//   pnpm import:cards --strict               # hold brand-new passcodes for review
+//
+// THE LEDGER DECIDES. Every upstream card is classified (kept, or excluded as
+// skill-card / ocg-only / manual / unreleased) and folded into
+// engine/cards/ledger.json; db.json is then built from whatever that ledger
+// marks `include`. A passcode already in the ledger keeps its decision, so a
+// flaky Yugipedia response can no longer silently evict a card from the pool —
+// see scripts/ledger.ts for the reconciliation rules.
 //
 // Pulls the full card database from an external source (YGOPRODeck),
 // normalizes it to a compact card-data shape, and writes:
 //
-//   assets/cards/db.json
+//   engine/cards/db.json
 //
 // TCG ONLY. We keep every card EXCEPT those Yugipedia classifies as OCG-only
 // (see fetchOcgOnly in _lib.ts) — matched by Konami passcode, or by name for
@@ -20,7 +29,7 @@
 // hand-curated card data tracked in this private repo.
 //
 // This script is the only place in the project allowed to hit the network.
-// The running app reads assets/cards/db.json directly and never
+// The running app reads engine/cards/db.json directly and never
 // fetches anything at runtime.
 //
 // NOTE: @duel/shared does not yet declare the frozen card-data shape (it lands
@@ -38,7 +47,12 @@ import {
   writeJson,
   hasFlag,
   numFlag,
+  isoDate,
 } from "./_lib.ts";
+import {
+  readLedger, reconcile, writeLedger, reportReconcile, includedCodes,
+  type Decision, type LedgerReason,
+} from "./ledger.ts";
 
 /** One printing of a card in a set (mirrors @duel/shared CardPrint). */
 interface CardPrint {
@@ -160,6 +174,8 @@ async function backfillFromYugipedia(cards: NormalizedCard[]): Promise<void> {
 
 async function main() {
   const limit = numFlag("limit", Infinity); // for testing: --limit=50
+  // Pre-release cards are excluded by default — see the filter below.
+  const includeUnreleased = hasFlag("include-unreleased");
 
   console.log("→ Fetching OCG-only cards from Yugipedia (Medium::OCG-only)…");
   const ocgOnly = await fetchOcgOnly();
@@ -211,20 +227,82 @@ async function main() {
     24461358, // Ragged Records of Rites
   ]);
 
-  const tcg = all.filter(
-    (c) =>
-      MANUAL_INCLUDE.has(c.id) ||
-      (!isOcgOnly(c) && !REMOVE_TYPES.has(c.type) && !MANUAL_EXCLUDE.has(c.id)),
-  );
-  const dropped = all.length - tcg.length;
-  const skills = all.filter((c) => REMOVE_TYPES.has(c.type)).length;
-  console.log(`  ${tcg.length} kept (dropped ${dropped}: ${skills} Skill Cards + OCG-only/curated)`);
+  // Classify EVERY upstream card, keeping the reason. Nothing is silently
+  // dropped any more — each rejection becomes a ledger entry you can grep.
+  const reasonFor = (c: any): LedgerReason | null => {
+    if (MANUAL_INCLUDE.has(c.id)) return null;
+    if (REMOVE_TYPES.has(c.type)) return "skill-card";
+    if (MANUAL_EXCLUDE.has(c.id)) return "manual";
+    if (isOcgOnly(c)) return "ocg-only";
+    return null;
+  };
+  const rejected = new Map<number, LedgerReason>();
+  const tcg: any[] = [];
+  for (const c of all) {
+    const why = reasonFor(c);
+    if (why) rejected.set(c.id, why);
+    else tcg.push(c);
+  }
+  const skills = [...rejected.values()].filter((r) => r === "skill-card").length;
+  console.log(`  ${tcg.length} kept (dropped ${rejected.size}: ${skills} Skill Cards + OCG-only/curated)`);
 
   const sliced = Number.isFinite(limit) ? tcg.slice(0, limit) : tcg;
-  const cards = sliced.map(normalize);
+  const allCards = sliced.map(normalize);
 
-  await backfillFromYugipedia(cards);
+  await backfillFromYugipedia(allCards);
 
+  // Cards that haven't hit TCG shelves yet. A card only announced for a future
+  // set has no official TCG text — upstream carries a fan translation of the OCG
+  // print, which is exactly what we don't want in the pool. Judged AFTER the
+  // Yugipedia backfill so the date is the best one we have. A null tcgDate is
+  // NOT future-dated: those are old/undated cards (and the MANUAL_INCLUDE ones).
+  const today = isoDate();
+  const isUnreleased = (c: NormalizedCard) => !includeUnreleased && !!c.tcgDate && c.tcgDate > today;
+  const unreleasedCards = allCards.filter(isUnreleased);
+  if (unreleasedCards.length) {
+    const bySet = new Map<string, number>();
+    for (const c of unreleasedCards) {
+      for (const code of new Set(c.sets.map((p) => p.code.split("-")[0]!))) {
+        bySet.set(code, (bySet.get(code) ?? 0) + 1);
+      }
+    }
+    const summary = [...bySet].sort().map(([code, n]) => `${code} ${n}`).join(", ");
+    console.log(`  dropped ${unreleasedCards.length} unreleased card(s) (TCG date after ${today}): ${summary}`);
+    console.log("    (--include-unreleased keeps them; they carry unofficial translations until release)");
+  }
+
+  // --- The ledger decides ---------------------------------------------------
+  // Hand every classification to the ledger, then build db.json from whatever it
+  // says to include. A passcode already recorded keeps its decision, so a flaky
+  // Yugipedia response can no longer quietly evict a card from the pool.
+  const decisions: Decision[] = [];
+  for (const c of allCards) {
+    const unreleasedNow = isUnreleased(c);
+    decisions.push({
+      code: c.id,
+      name: c.name,
+      status: unreleasedNow ? "exclude" : "include",
+      reason: unreleasedNow ? "unreleased" : "tcg",
+      ...(unreleasedNow && c.sets[0] ? { source: c.sets[0].code.split("-")[0]! } : {}),
+    });
+  }
+  const upstreamName = new Map<number, string>(all.map((c) => [c.id as number, c.name as string]));
+  for (const [code, reason] of rejected) {
+    const nm = upstreamName.get(code);
+    decisions.push({ code, status: "exclude", reason, ...(nm ? { name: nm } : {}) });
+  }
+
+  const ledger = await readLedger();
+  const res = reconcile(ledger, decisions, "cards", { strict: hasFlag("strict") });
+  await writeLedger(ledger);
+  reportReconcile(res, ledger, "cards");
+
+  const included = includedCodes(ledger);
+  const cards = allCards.filter((c) => included.has(c.id));
+  const heldBack = allCards.length - cards.length - unreleasedCards.length;
+  if (heldBack > 0) {
+    console.log(`  ${heldBack} card(s) upstream offered are excluded by the ledger (see engine/cards/ledger.json)`);
+  }
   await writeJson(PATHS.cardsDb, {
     _comment: "Generated by scripts/import-cards.ts from YGOPRODeck. TCG only. Do not hand-edit.",
     source: YGO.source,
@@ -234,7 +312,7 @@ async function main() {
   });
 
   const artworkCount = cards.reduce((n, c) => n + c.images.length, 0);
-  console.log(`✓ Wrote ${cards.length} cards (${artworkCount} artworks referenced) → assets/cards/db.json`);
+  console.log(`✓ Wrote ${cards.length} cards (${artworkCount} artworks referenced) → engine/cards/db.json`);
   console.log("  Next: `pnpm build:images` to download the artwork.");
   if (hasFlag("limit")) console.log("  (ran with --limit; db.json is a partial sample)");
 }

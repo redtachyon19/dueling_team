@@ -21,24 +21,68 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(here, "..");
 export const ASSETS = join(REPO_ROOT, "assets");
 
+const ENGINE = join(REPO_ROOT, "engine");
+
+// THE GITIGNORE BOUNDARY IS THE FOLDER BOUNDARY:
+//   assets/  — ENTIRELY gitignored. Everything in it is regenerable by a
+//              script: card art, cropped art, set imagery, and the ocgcore
+//              engine data. Wipe the folder and `pnpm import:ocg` +
+//              `pnpm build:images` + `pnpm build:set-images` rebuild it.
+//   engine/  — tracked. The card/set databases, the append-only banlist and
+//              Genesys archives, and ocgcore.lock.json (which pins the exact
+//              upstream commits assets/ocgcore/ is rebuilt from).
+//   ui/assets/ — tracked. Hand-made render assets (sleeves, card-frame
+//              templates, fonts, logos) that NO script can re-download.
 export const PATHS = {
   root: ASSETS,
-  cardsDb: join(ASSETS, "cards", "db.json"),
-  cardImages: join(ASSETS, "cards", "images"),
-  cardImagesCropped: join(ASSETS, "cards", "images_cropped"),
-  banlists: join(ASSETS, "banlists"),
-  banlistIndex: join(ASSETS, "banlists", "index.json"),
+  engine: ENGINE,
+  /** Card + set databases. Under engine/ with the rest of the data — assets/
+   *  holds only images now. Both are regenerable (`pnpm import:cards` /
+   *  `import:sets`) but they are what every other script resolves against. */
+  cardsDb: join(ENGINE, "cards", "db.json"),
+  /** The card ledger — every passcode we've seen, included or blacklisted, with
+   *  a reason. Single source of truth for the pool; see scripts/ledger.ts. */
+  cardsLedger: join(ENGINE, "cards", "ledger.json"),
+  setsDb: join(ENGINE, "sets", "db.json"),
+  setsIndex: join(ENGINE, "sets", "index.json"),
+  /** Full card art, by passcode ({id}.jpg). */
+  cardImages: join(ASSETS, "cards"),
+  /** Cropped artwork only, no frame ({id}.jpg). */
+  cardImagesCropped: join(ASSETS, "art"),
+  /** Banlist + Genesys archives. These live under engine/, not assets/: they are
+   *  append-only historical records that CANNOT be re-downloaded — upstream
+   *  publishes only the current list, so a lost revision is lost for good (see
+   *  the note in import-genesys-history.ts). */
+  banlists: join(ENGINE, "banlists"),
+  banlistIndex: join(ENGINE, "banlists", "index.json"),
   sets: join(ASSETS, "sets"),
-  setsDb: join(ASSETS, "sets", "db.json"),
   setImages: join(ASSETS, "sets", "images"), // YGOPRODeck set logos ({CODE}.jpg)
   // Official box/pack art (scraped by build-set-images.ts) lives under
   // assets/sets/<type>/{CODE}.png — bucketed by set type, joined at use.
-  genesys: join(ASSETS, "genesys"),
-  genesysIndex: join(ASSETS, "genesys", "index.json"),
+  genesys: join(ENGINE, "genesys"),
+  genesysIndex: join(ENGINE, "genesys", "index.json"),
+  /** ocgcore (ygopro-core) engine data — the Lua card-effect scripts and the
+   *  numeric carddata the core loads. Lives in assets/ because it is entirely
+   *  regenerable; the tracked lockfile below pins the upstream commits it is
+   *  rebuilt from. */
+  ocgcore: join(ASSETS, "ocgcore"),
+  ocgcoreScripts: join(ASSETS, "ocgcore", "script"),
+  /** Tracked lockfile for assets/ocgcore/ — the exact ProjectIgnis commits. */
+  ocgcoreLock: join(ENGINE, "ocgcore.lock.json"),
 } as const;
 
+/** Konami's official Genesys page — publishes the CURRENT list in full as an
+ *  HTML table (Card Name | Points). The authority; used by update-genesys.ts. */
+export const GENESYS_OFFICIAL = "https://www.yugioh-card.com/en/genesys/";
+
 /** Third-party Genesys points API (paginated JSON: {items,nextOffset,hasMore,total}).
- *  Trailing slash avoids a 308 redirect. */
+ *  Trailing slash avoids a 308 redirect.
+ *
+ *  STALE — do not use for the current list. Verified 2026-08-16: 520 unique
+ *  entries vs the official 751, missing staples (D.D. Crow, Terraforming), and
+ *  point values matching no single published revision. Kept only because
+ *  import-genesys-history.ts anchors its reverse-walk on it; update-genesys.ts
+ *  now reads GENESYS_OFFICIAL instead. */
 export const GENESYS_API = "https://yugiohgenesysbuilder.com/api/cards/";
 
 // --- upstream (YGOPRODeck v7) ----------------------------------------------
@@ -414,3 +458,13 @@ export function numFlag(name: string, fallback: number): number {
 
 export const hasFlag = (name: string): boolean =>
   process.argv.includes(`--${name}`);
+
+/** `--name=a,b,c` → ["a","b","c"] (trimmed, empties dropped); [] if absent. */
+export function listFlag(name: string): string[] {
+  const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
+  if (!hit) return [];
+  return (hit.split("=").slice(1).join("=") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}

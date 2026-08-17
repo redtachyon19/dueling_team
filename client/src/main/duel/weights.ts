@@ -1,7 +1,7 @@
 // Loads self-play-learned evaluation weights from a LOCAL file — no network,
 // consistent with the project's local-first / no-runtime-external-API rules.
 // The file is written by the manual trainer (`scripts/train-ai.ts`) and lives
-// under assets/ (gitignored, like the rest of the generated data). When it is
+// under assets/ (tracked, like the rest of the generated data). When it is
 // absent or malformed, the AI keeps its hand-tuned DEFAULT_WEIGHTS.
 
 import { readFileSync, existsSync } from "node:fs";

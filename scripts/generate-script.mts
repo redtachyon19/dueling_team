@@ -3,7 +3,7 @@
 // BUILD-TIME ONLY. Generate a candidate ocgcore Lua script for a card using a
 // hosted LLM (Claude) with retrieval-augmented exemplars and an execution
 // verifier in the loop. DRAFTS ONLY — output lands in a review staging dir and
-// is never written into assets/ocg/script. A human reviews before it ships.
+// is never written into assets/ocgcore/script. A human reviews before it ships.
 //
 //   pnpm gen:script <passcode> [--k=6] [--repairs=3] [--model=claude-opus-4-8]
 //
@@ -192,7 +192,7 @@ async function main() {
   const client = new Anthropic(); // reads ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN from env
   const result = await generateCardScript(client, target, { exemplars, verify, model, maxRepairs, log: (m) => console.log(m) });
 
-  // Write the DRAFT to the review staging dir — never assets/ocg/script.
+  // Write the DRAFT to the review staging dir — never assets/ocgcore/script.
   const outDir = path.join(path.dirname(readers.scriptDir), "generated");
   mkdirSync(outDir, { recursive: true });
   const outFile = path.join(outDir, `c${code}.lua`);
@@ -206,7 +206,7 @@ async function main() {
   }
   console.log(
     result.ok
-      ? `  Review it, then move it into assets/ocg/script/ to ship (check:scripts will then see the gap closed).`
+      ? `  Review it, then move it into assets/ocgcore/script/ to ship (check:scripts will then see the gap closed).`
       : `  Left as a draft for a human to finish. Do NOT ship as-is.`,
   );
   process.exit(result.ok ? 0 : 1);

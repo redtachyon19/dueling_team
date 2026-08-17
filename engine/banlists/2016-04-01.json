@@ -1,0 +1,684 @@
+{
+  "date": "2016-04-01",
+  "format": "TCG",
+  "source": "https://raw.githubusercontent.com/Fluorohydride/ygopro/master/lflist.conf (Fluorohydride/ygopro)",
+  "fetchedAt": "2026-05-31T18:47:01.614Z",
+  "forbidden": [
+    {
+      "id": 27279764,
+      "name": "Apoqliphort Towers"
+    },
+    {
+      "id": 53804307,
+      "name": "Blaster, Dragon Ruler of Infernos"
+    },
+    {
+      "id": 87910978,
+      "name": "Brain Control"
+    },
+    {
+      "id": 50321796,
+      "name": "Brionac, Dragon of the Ice Barrier"
+    },
+    {
+      "id": 69243953,
+      "name": "Butterfly Dagger - Elma"
+    },
+    {
+      "id": 72892473,
+      "name": "Card Destruction"
+    },
+    {
+      "id": 57953380,
+      "name": "Card of Safe Return"
+    },
+    {
+      "id": 4031928,
+      "name": "Change of Heart"
+    },
+    {
+      "id": 82301904,
+      "name": "Chaos Emperor Dragon - Envoy of the End"
+    },
+    {
+      "id": 67616300,
+      "name": "Chicken Game"
+    },
+    {
+      "id": 60682203,
+      "name": "Cold Wave"
+    },
+    {
+      "id": 17375316,
+      "name": "Confiscation"
+    },
+    {
+      "id": 34124316,
+      "name": "Cyber Jar"
+    },
+    {
+      "id": 69015963,
+      "name": "Cyber-Stein"
+    },
+    {
+      "id": 44763025,
+      "name": "Delinquent Duo"
+    },
+    {
+      "id": 56570271,
+      "name": "Destiny HERO - Disk Commander"
+    },
+    {
+      "id": 23557835,
+      "name": "Dimension Fusion"
+    },
+    {
+      "id": 8903700,
+      "name": "Djinn Releaser of Rituals"
+    },
+    {
+      "id": 20366274,
+      "name": "El Shaddoll Construct"
+    },
+    {
+      "id": 40044918,
+      "name": "Elemental HERO Stratos"
+    },
+    {
+      "id": 46772449,
+      "name": "Evilswarm Exciton Knight"
+    },
+    {
+      "id": 78706415,
+      "name": "Fiber Jar"
+    },
+    {
+      "id": 93369354,
+      "name": "Fishborg Blaster"
+    },
+    {
+      "id": 77565204,
+      "name": "Future Fusion"
+    },
+    {
+      "id": 27970830,
+      "name": "Gateway of the Six"
+    },
+    {
+      "id": 42703248,
+      "name": "Giant Trunade"
+    },
+    {
+      "id": 79571449,
+      "name": "Graceful Charity"
+    },
+    {
+      "id": 18144506,
+      "name": "Harpie's Feather Duster"
+    },
+    {
+      "id": 19613556,
+      "name": "Heavy Storm"
+    },
+    {
+      "id": 61740673,
+      "name": "Imperial Order"
+    },
+    {
+      "id": 28566710,
+      "name": "Last Turn"
+    },
+    {
+      "id": 85602018,
+      "name": "Last Will"
+    },
+    {
+      "id": 34086406,
+      "name": "Lavalval Chain"
+    },
+    {
+      "id": 34206604,
+      "name": "Magical Scientist"
+    },
+    {
+      "id": 21593977,
+      "name": "Makyura the Destructor"
+    },
+    {
+      "id": 34906152,
+      "name": "Mass Driver"
+    },
+    {
+      "id": 46411259,
+      "name": "Metamorphosis"
+    },
+    {
+      "id": 96782886,
+      "name": "Mind Master"
+    },
+    {
+      "id": 41482598,
+      "name": "Mirage of Nightmare"
+    },
+    {
+      "id": 83764718,
+      "name": "Monster Reborn"
+    },
+    {
+      "id": 33508719,
+      "name": "Morphing Jar"
+    },
+    {
+      "id": 79106360,
+      "name": "Morphing Jar #2"
+    },
+    {
+      "id": 54719828,
+      "name": "Number 16: Shock Master"
+    },
+    {
+      "id": 74191942,
+      "name": "Painful Choice"
+    },
+    {
+      "id": 68819554,
+      "name": "Performage Damage Juggler"
+    },
+    {
+      "id": 7563579,
+      "name": "Performage Plushfire"
+    },
+    {
+      "id": 67169062,
+      "name": "Pot of Avarice"
+    },
+    {
+      "id": 55144522,
+      "name": "Pot of Greed"
+    },
+    {
+      "id": 70828912,
+      "name": "Premature Burial"
+    },
+    {
+      "id": 90411554,
+      "name": "Redox, Dragon Ruler of Boulders"
+    },
+    {
+      "id": 14878871,
+      "name": "Rescue Cat"
+    },
+    {
+      "id": 27174286,
+      "name": "Return from the Different Dimension"
+    },
+    {
+      "id": 93016201,
+      "name": "Royal Oppression"
+    },
+    {
+      "id": 26202165,
+      "name": "Sangan"
+    },
+    {
+      "id": 57585212,
+      "name": "Self-Destruct Button"
+    },
+    {
+      "id": 90307777,
+      "name": "Shurit, Strategist of the Nekroz"
+    },
+    {
+      "id": 3280747,
+      "name": "Sixth Sense"
+    },
+    {
+      "id": 45986603,
+      "name": "Snatch Steal"
+    },
+    {
+      "id": 41420027,
+      "name": "Solemn Judgment"
+    },
+    {
+      "id": 46448938,
+      "name": "Spellbook of Judgment"
+    },
+    {
+      "id": 20663556,
+      "name": "Substitoad"
+    },
+    {
+      "id": 48130397,
+      "name": "Super Polymerization"
+    },
+    {
+      "id": 27770341,
+      "name": "Super Rejuvenation"
+    },
+    {
+      "id": 18326736,
+      "name": "Tellarknight Ptolemaeus"
+    },
+    {
+      "id": 89399912,
+      "name": "Tempest, Dragon Ruler of Storms"
+    },
+    {
+      "id": 42829885,
+      "name": "The Forceful Sentry"
+    },
+    {
+      "id": 26400609,
+      "name": "Tidal, Dragon Ruler of Waterfalls"
+    },
+    {
+      "id": 35316708,
+      "name": "Time Seal"
+    },
+    {
+      "id": 64697231,
+      "name": "Trap Dustshoot"
+    },
+    {
+      "id": 33184167,
+      "name": "Tribe-Infecting Virus"
+    },
+    {
+      "id": 80604091,
+      "name": "Ultimate Offering"
+    },
+    {
+      "id": 44910027,
+      "name": "Victory Dragon"
+    },
+    {
+      "id": 31222701,
+      "name": "Wavering Eyes"
+    },
+    {
+      "id": 81122844,
+      "name": "Wind-Up Carrier Zenmaity"
+    },
+    {
+      "id": 78010363,
+      "name": "Witch of the Black Forest"
+    },
+    {
+      "id": 3078576,
+      "name": "Yata-Garasu"
+    }
+  ],
+  "limited": [
+    {
+      "id": 85103922,
+      "name": "Artifact Moralltach"
+    },
+    {
+      "id": 72989439,
+      "name": "Black Luster Soldier - Envoy of the Beginning"
+    },
+    {
+      "id": 14087893,
+      "name": "Book of Moon"
+    },
+    {
+      "id": 29401950,
+      "name": "Bottomless Trap Hole"
+    },
+    {
+      "id": 48976825,
+      "name": "Burial from a Different Dimension"
+    },
+    {
+      "id": 94192409,
+      "name": "Compulsory Evacuation Device"
+    },
+    {
+      "id": 15341821,
+      "name": "Dandylion"
+    },
+    {
+      "id": 65192027,
+      "name": "Dark Armed Dragon"
+    },
+    {
+      "id": 78868119,
+      "name": "Deep Sea Diva"
+    },
+    {
+      "id": 70583986,
+      "name": "Dewloren, Tiger King of the Ice Barrier"
+    },
+    {
+      "id": 81674782,
+      "name": "Dimensional Fissure"
+    },
+    {
+      "id": 15854426,
+      "name": "Divine Wind of Mist Valley"
+    },
+    {
+      "id": 14733538,
+      "name": "Draco Face-Off"
+    },
+    {
+      "id": 6417578,
+      "name": "El Shaddoll Fusion"
+    },
+    {
+      "id": 17412721,
+      "name": "Elder Entity Norden"
+    },
+    {
+      "id": 54974237,
+      "name": "Eradicator Epidemic Virus"
+    },
+    {
+      "id": 45222299,
+      "name": "Evigishki Gustkraken"
+    },
+    {
+      "id": 11877465,
+      "name": "Evigishki Mind Augus"
+    },
+    {
+      "id": 33396948,
+      "name": "Exodia the Forbidden One"
+    },
+    {
+      "id": 95308449,
+      "name": "Final Countdown"
+    },
+    {
+      "id": 81439173,
+      "name": "Foolish Burial"
+    },
+    {
+      "id": 64034255,
+      "name": "Genex Ally Birdman"
+    },
+    {
+      "id": 75500286,
+      "name": "Gold Sarcophagus"
+    },
+    {
+      "id": 20758643,
+      "name": "Graff, Malebranche of the Burning Abyss"
+    },
+    {
+      "id": 18239909,
+      "name": "Ignister Prominence, the Blasting Dracoslayer"
+    },
+    {
+      "id": 99177923,
+      "name": "Infernity Archfiend"
+    },
+    {
+      "id": 9059700,
+      "name": "Infernity Barrier"
+    },
+    {
+      "id": 66957584,
+      "name": "Infernity Launcher"
+    },
+    {
+      "id": 68184115,
+      "name": "Inzektor Dragonfly"
+    },
+    {
+      "id": 69207766,
+      "name": "Inzektor Hornet"
+    },
+    {
+      "id": 7902349,
+      "name": "Left Arm of the Forbidden One"
+    },
+    {
+      "id": 44519536,
+      "name": "Left Leg of the Forbidden One"
+    },
+    {
+      "id": 23171610,
+      "name": "Limiter Removal"
+    },
+    {
+      "id": 92746535,
+      "name": "Luster Pendulum, the Dracoslayer"
+    },
+    {
+      "id": 30241314,
+      "name": "Macro Cosmos"
+    },
+    {
+      "id": 32723153,
+      "name": "Magical Explosion"
+    },
+    {
+      "id": 41386308,
+      "name": "Mathematician"
+    },
+    {
+      "id": 37520316,
+      "name": "Mind Control"
+    },
+    {
+      "id": 43040603,
+      "name": "Monster Gate"
+    },
+    {
+      "id": 26674724,
+      "name": "Nekroz of Brionac"
+    },
+    {
+      "id": 89463537,
+      "name": "Nekroz of Unicore"
+    },
+    {
+      "id": 80344569,
+      "name": "Neo-Spacian Grand Mole"
+    },
+    {
+      "id": 16226786,
+      "name": "Night Assailant"
+    },
+    {
+      "id": 33782437,
+      "name": "One Day of Peace"
+    },
+    {
+      "id": 2295440,
+      "name": "One for One"
+    },
+    {
+      "id": 17330916,
+      "name": "Performapal Monkeyboard"
+    },
+    {
+      "id": 40318957,
+      "name": "Performapal Skullcrobat Joker"
+    },
+    {
+      "id": 96729612,
+      "name": "Preparation of Rites"
+    },
+    {
+      "id": 65518099,
+      "name": "Qliphort Scout"
+    },
+    {
+      "id": 12580477,
+      "name": "Raigeki"
+    },
+    {
+      "id": 58577036,
+      "name": "Reasoning"
+    },
+    {
+      "id": 88264978,
+      "name": "Red-Eyes Darkness Metal Dragon"
+    },
+    {
+      "id": 32807846,
+      "name": "Reinforcement of the Army"
+    },
+    {
+      "id": 74845897,
+      "name": "Rekindling"
+    },
+    {
+      "id": 85138716,
+      "name": "Rescue Rabbit"
+    },
+    {
+      "id": 70903634,
+      "name": "Right Arm of the Forbidden One"
+    },
+    {
+      "id": 8124921,
+      "name": "Right Leg of the Forbidden One"
+    },
+    {
+      "id": 83555666,
+      "name": "Ring of Destruction"
+    },
+    {
+      "id": 48063985,
+      "name": "Ritual Beast Ulti-Cannahawk"
+    },
+    {
+      "id": 72405967,
+      "name": "Royal Tribute"
+    },
+    {
+      "id": 17639150,
+      "name": "Saqlifice"
+    },
+    {
+      "id": 82732705,
+      "name": "Skill Drain"
+    },
+    {
+      "id": 84749824,
+      "name": "Solemn Warning"
+    },
+    {
+      "id": 54447022,
+      "name": "Soul Charge"
+    },
+    {
+      "id": 73599290,
+      "name": "Soul Drain"
+    },
+    {
+      "id": 45305419,
+      "name": "Symbol of Heritage"
+    },
+    {
+      "id": 90953320,
+      "name": "T.G. Hyper Librarian"
+    },
+    {
+      "id": 63519819,
+      "name": "Thousand-Eyes Restrict"
+    },
+    {
+      "id": 71564252,
+      "name": "Thunder King Rai-Oh"
+    },
+    {
+      "id": 53582587,
+      "name": "Torrential Tribute"
+    },
+    {
+      "id": 10802915,
+      "name": "Tour Guide From the Underworld"
+    },
+    {
+      "id": 52687916,
+      "name": "Trishula, Dragon of the Ice Barrier"
+    },
+    {
+      "id": 70368879,
+      "name": "Upstart Goblin"
+    },
+    {
+      "id": 5851097,
+      "name": "Vanity's Emptiness"
+    },
+    {
+      "id": 17078030,
+      "name": "Wall of Revealing Light"
+    },
+    {
+      "id": 59297550,
+      "name": "Wind-Up Magician"
+    },
+    {
+      "id": 72714461,
+      "name": "Wisdom-Eye Magician"
+    }
+  ],
+  "semiLimited": [
+    {
+      "id": 1475311,
+      "name": "Allure of Darkness"
+    },
+    {
+      "id": 74311226,
+      "name": "Atlantean Dragoons"
+    },
+    {
+      "id": 85087012,
+      "name": "Card Trooper"
+    },
+    {
+      "id": 36468556,
+      "name": "Ceasefire"
+    },
+    {
+      "id": 91623717,
+      "name": "Chain Strike"
+    },
+    {
+      "id": 94886282,
+      "name": "Charge of the Light Brigade"
+    },
+    {
+      "id": 57143342,
+      "name": "Cir, Malebranche of the Burning Abyss"
+    },
+    {
+      "id": 53129443,
+      "name": "Dark Hole"
+    },
+    {
+      "id": 14943837,
+      "name": "Debris Dragon"
+    },
+    {
+      "id": 62265044,
+      "name": "Dragon Ravine"
+    },
+    {
+      "id": 67723438,
+      "name": "Emergency Teleport"
+    },
+    {
+      "id": 37742478,
+      "name": "Honest"
+    },
+    {
+      "id": 28297833,
+      "name": "Necroface"
+    },
+    {
+      "id": 29843091,
+      "name": "Ojama Trio"
+    },
+    {
+      "id": 423585,
+      "name": "Summoner Monk"
+    }
+  ]
+}

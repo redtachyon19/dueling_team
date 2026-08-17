@@ -9,7 +9,7 @@
 //
 // It mirrors, in reverse, what import-ocg.ts decodes out of BabelCDB. The bit
 // constants (TYPE_/ATTRIBUTE_/RACE_/LINK_MARKER_) are parsed from the real
-// assets/ocg/script/constant.lua rather than hardcoded, so they track upstream.
+// assets/ocgcore/script/constant.lua rather than hardcoded, so they track upstream.
 //
 // KNOWN APPROXIMATION: db.json gives a single `archetype` name, not the packed
 // setcodes a card really carries. We recover setcodes data-drivenly — a new card

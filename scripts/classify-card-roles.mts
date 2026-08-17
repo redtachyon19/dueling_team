@@ -1,6 +1,6 @@
 // Build-time effect-role classifier. MANUAL, like the other importers; never
 // imported by the running app. It mines the LOCAL ProjectIgnis Lua scripts
-// (assets/ocg/script/cNNN.lua) for coarse effect roles — what a card DOES —
+// (assets/ocgcore/script/cNNN.lua) for coarse effect roles — what a card DOES —
 // because the numeric card DB has no text and the evaluation otherwise can't
 // tell a negate/handtrap/searcher from any other effect monster.
 //
@@ -8,7 +8,7 @@
 // API tokens (Duel.NegateEffect, SearchMatchingCard, …) and constant flags
 // (EFFECT_DISABLE, LOCATION_HAND, EFFECT_TYPE_QUICK_O, …). It is approximate by
 // nature — the run prints coverage + a spot-check on well-known cards so its
-// accuracy is visible. Output: assets/ocg/card-roles.json (local, gitignored).
+// accuracy is visible. Output: assets/ocgcore/card-roles.json (gitignored).
 //
 // Usage:  pnpm classify:roles
 
@@ -42,7 +42,7 @@ const checks: [number, string, string][] = [
 ];
 for (const [code, name, exp] of checks) console.log(`  ${name} (${code}): [${(roles[String(code)] ?? []).join(", ") || "—"}]  expected ~${exp}`);
 
-const outDir = path.join(process.cwd(), "assets", "ocg");
+const outDir = path.join(process.cwd(), "assets", "ocgcore");
 mkdirSync(outDir, { recursive: true });
 const outFile = path.join(outDir, "card-roles.json");
 writeFileSync(outFile, JSON.stringify(roles));

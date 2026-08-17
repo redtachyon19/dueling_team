@@ -9,10 +9,10 @@
 //
 // The duel engine (ocgcore) needs two things for every card it plays, both
 // produced by `pnpm import:ocg` from ProjectIgnis:
-//   - an entry in assets/ocg/carddata.json   (cardReader — metadata)
-//   - assets/ocg/script/c<code>.lua          (scriptReader — effects)
+//   - an entry in assets/ocgcore/carddata.json   (cardReader — metadata)
+//   - assets/ocgcore/script/c<code>.lua          (scriptReader — effects)
 //
-// Those are a snapshot of a moving upstream, while assets/cards/db.json grows
+// Those are a snapshot of a moving upstream, while engine/cards/db.json grows
 // every time `pnpm import:cards` runs. This check is the drift signal between
 // the two: it reports cards in db.json that the engine can't fully represent,
 // so a stale script set can never go unnoticed again.
@@ -33,8 +33,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PATHS, readJson, hasFlag } from "./_lib.ts";
 
-const OCG = join(PATHS.root, "ocg");
-const SCRIPT_DIR = join(OCG, "script");
+const OCG = PATHS.ocgcore;
+const SCRIPT_DIR = PATHS.ocgcoreScripts;
 const CARDDATA = join(OCG, "carddata.json");
 
 interface DbCard {
@@ -80,7 +80,7 @@ interface Gap {
 async function main() {
   const db = await readJson<{ cards: DbCard[] }>(PATHS.cardsDb);
   if (!db?.cards?.length) {
-    console.error("✗ assets/cards/db.json not found. Run `pnpm import:cards` first.");
+    console.error("✗ engine/cards/db.json not found. Run `pnpm import:cards` first.");
     process.exit(2);
   }
 
@@ -94,7 +94,7 @@ async function main() {
   const cardIds = new Set<number>(Object.keys(carddata).map(Number));
   if (scriptIds.size === 0 || cardIds.size === 0) {
     console.error(
-      `✗ assets/ocg looks empty (scripts: ${scriptIds.size}, carddata: ${cardIds.size}). Run \`pnpm import:ocg\`.`,
+      `✗ assets/ocgcore looks empty (scripts: ${scriptIds.size}, carddata: ${cardIds.size}). Run \`pnpm import:ocg\`.`,
     );
     process.exit(2);
   }
@@ -178,7 +178,7 @@ async function main() {
 
   const quiet = hasFlag("quiet");
   if (!quiet || realGaps > 0) {
-    console.log(`Engine-data coverage  (assets/cards/db.json ↔ assets/ocg)`);
+    console.log(`Engine-data coverage  (engine/cards/db.json ↔ assets/ocgcore)`);
     console.log(`  ${db.cards.length} cards · ${cardIds.size} carddata entries · ${scriptIds.size} scripts`);
     console.log(
       `  carddata: ${db.cards.length - missingCarddata.length} present, ${missingCarddata.length} missing` +

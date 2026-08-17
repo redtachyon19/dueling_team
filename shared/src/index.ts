@@ -17,7 +17,7 @@ export * from "./net";
 // ---------------------------------------------------------------------------
 //
 // The shape of a single card as written by scripts/import-cards.ts into
-// assets/cards/db.json (TCG only). Keep this in sync with the
+// engine/cards/db.json (TCG only). Keep this in sync with the
 // `normalize()` output in that importer — this type is the canonical
 // definition; the importer mirrors it.
 
@@ -70,7 +70,7 @@ export interface CardData {
   sets: CardPrint[];
 }
 
-/** On-disk shape of assets/cards/db.json. */
+/** On-disk shape of engine/cards/db.json. */
 export interface CardDatabaseFile {
   source: string;
   generatedAt: string;
@@ -95,7 +95,7 @@ export interface SetData {
   cards: number[];
 }
 
-/** On-disk shape of assets/sets/db.json. */
+/** On-disk shape of engine/sets/db.json. */
 export interface SetDatabaseFile {
   source: string;
   generatedAt: string;

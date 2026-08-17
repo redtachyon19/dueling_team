@@ -9,10 +9,10 @@
 // reverse-applying the point changes published in Konami's official Genesys
 // update articles. Each article lists deltas as "Card Name OLD->NEW" (the
 // arrow may be ASCII "->" or the Unicode "→"); the cards are matched to
-// passcodes via assets/cards/db.json.
+// passcodes via engine/cards/db.json.
 //
 // Output: one append-only snapshot per list under
-//   assets/genesys/YYYY-MM-DD.json
+//   engine/genesys/YYYY-MM-DD.json
 // plus a regenerated index.json. The launch list (initial points, frozen end
 // of August 2025) is dated 2025-08-31.
 //
@@ -28,9 +28,20 @@
 // requests only (public blog data, build-time only). The card API uses normal
 // TLS via the shared fetch helper.
 //
-// To add a new list when Konami posts one: append it to UPDATES (oldest→newest)
-// and re-run. Append-only: existing dated files are not overwritten except the
-// current-list file, which is refreshed from the live API.
+// ⚠ DO NOT RE-RUN WITHOUT RE-VERIFYING THE ANCHOR. This script rewrites EVERY
+// dated snapshot from the API anchor, and that anchor has since drifted:
+// verified 2026-08-16, the API serves 520 unique entries (vs 751 on Konami's
+// official page), is missing staples like D.D. Crow and Terraforming, and no
+// longer matches the 2025-09-24 state the ANCHOR constant below assumes. Re-
+// running today would overwrite the good archive in engine/genesys/ with junk.
+// The historical snapshots it already produced are on disk and correct; treat
+// them as the archive. Current lists come from update-genesys.ts, which scrapes
+// Konami's official page directly (no delta math, no third-party API).
+//
+// To add a NEW list when Konami posts one, use update-genesys.ts — bump its
+// EFFECTIVE_DATE and run `pnpm import:genesys`. This script is now only for
+// re-deriving *history*, and only after re-establishing which era the API
+// anchor actually reflects.
 
 import { Agent } from "node:https";
 import { readdir, readFile } from "node:fs/promises";

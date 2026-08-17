@@ -18,8 +18,8 @@
 // columns (card not yet relevant), and the N values are right-aligned to the
 // full column set: firstColumnIndex = totalColumns - varCount.
 //
-// We resolve card names → passcodes via assets/cards/db.json and write
-// append-only assets/banlists/YYYY-MM-01.json (skipping any date that
+// We resolve card names → passcodes via engine/cards/db.json and write
+// append-only engine/banlists/YYYY-MM-01.json (skipping any date that
 // already exists, so the 2013+ lflist files are never touched), then
 // regenerate index.json.
 //

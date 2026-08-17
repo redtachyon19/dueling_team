@@ -20,7 +20,7 @@ import {
   type GenesysLookup,
 } from "../cards/deck.ts";
 import type { BanStatus, BanlistRevisionMeta, GenesysRevisionMeta } from "@duel/shared";
-import cardBack from "../../../../assets/cards/sleeves/original_card_sleeve.png";
+import cardBack from "../../../../ui/assets/sleeves/original_card_sleeve.png";
 
 const RESULT_CAP = 120;
 

@@ -7,7 +7,8 @@
   "packageManager": "pnpm@9.0.0",
   "scripts": {
     "build": "pnpm -r build",
-    "test": "pnpm -r test",
+    "test": "pnpm -r test && vitest run scripts",
+    "test:scripts": "vitest run scripts",
     "typecheck": "pnpm -r typecheck",
     "dev": "pnpm --filter @duel/client dev",
     "import:cards": "tsx scripts/import-cards.ts",
@@ -17,6 +18,7 @@
     "import:genesys": "tsx scripts/update-genesys.ts",
     "import:genesys:history": "tsx scripts/import-genesys-history.ts",
     "import:ocg": "tsx scripts/import-ocg.ts",
+    "ledger": "tsx scripts/ledger-query.ts",
     "check:scripts": "tsx scripts/check-script-coverage.ts",
     "verify:script": "tsx scripts/verify-script.mts",
     "encode:card": "tsx scripts/card-encoder.mts",

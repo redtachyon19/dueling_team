@@ -2,9 +2,8 @@
 // card DOES (negate / handtrap / searcher / disruption) — not just its stats —
 // so it can value a negate end-board over a stat-equal vanilla board, for ANY
 // deck. Roles are mined from the LOCAL ProjectIgnis Lua scripts at build time
-// (scripts/classify-card-roles.mts → assets/ocg/card-roles.json) and loaded
-// here at runtime. No network; the role file lives under the gitignored assets/
-// like the rest of the Konami-derived data.
+// (scripts/classify-card-roles.mts → assets/ocgcore/card-roles.json) and loaded
+// here at runtime. No network; the role file lives with the ocgcore engine data.
 //
 // `classifyScript` is the pure heuristic (regex over the stable EDOPro engine
 // API) — exported so the build script and unit tests share one definition.
@@ -65,12 +64,12 @@ export function isHandtrap(code: number): boolean {
   return roleMap.get(code)?.includes("handtrap") ?? false;
 }
 
-/** Walk up from each start dir to find assets/ocg/card-roles.json. */
+/** Walk up from each start dir to find assets/ocgcore/card-roles.json. */
 function findRolesFile(startDirs: string[]): string | null {
   for (const start of startDirs) {
     let dir = start;
     for (let i = 0; i < 8; i++) {
-      const candidate = path.join(dir, "assets", "ocg", "card-roles.json");
+      const candidate = path.join(dir, "assets", "ocgcore", "card-roles.json");
       if (existsSync(candidate)) return candidate;
       const parent = path.dirname(dir);
       if (parent === dir) break;

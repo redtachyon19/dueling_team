@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CardData, CardQuery, CardSupertype, SetData } from "@duel/shared";
+import type { CardData, CardQuery, CardSort, CardSupertype, SetData } from "@duel/shared";
 import { runQuery, prepareCards, deriveFacets, expandArtworks } from "../cards/search.ts";
 import type { ArtworkTile } from "../cards/search.ts";
 import { CardDetail } from "./CardDetail.tsx";
@@ -8,10 +8,27 @@ import { ArchetypeDetail } from "./ArchetypeDetail.tsx";
 import { AllSets } from "./AllSets.tsx";
 import { CardViewer } from "./CardViewer.tsx";
 // Card-back shown on a grid tile when its art isn't downloaded.
-import cardBack from "../../../../assets/cards/sleeves/original_card_sleeve.png";
+import cardBack from "../../../../ui/assets/sleeves/original_card_sleeve.png";
 
 const PAGE = 120; // how many tiles to mount initially / reveal per scroll step
 const SUPERTYPES: CardSupertype[] = ["Monster", "Spell", "Trap"];
+
+// Grid ordering. Defaults to Newest so the tab opens on the latest release
+// rather than raw db.json order. "Best match" is the text-relevance ranking,
+// which only does anything while there's a search term. (Deck's pool has its
+// own shorter list — no relevance there, since that grid is always filtered.)
+const SORTS: Array<{ value: CardSort; label: string }> = [
+  { value: "newest", label: "Newest" },
+  { value: "relevance", label: "Best match" },
+  { value: "name", label: "Name" },
+  { value: "type", label: "Type" },
+  { value: "atk-desc", label: "ATK ↓" },
+  { value: "atk-asc", label: "ATK ↑" },
+  { value: "def-desc", label: "DEF ↓" },
+  { value: "def-asc", label: "DEF ↑" },
+  { value: "level-desc", label: "Level ↓" },
+  { value: "level-asc", label: "Level ↑" },
+];
 
 type LoadState =
   | { status: "loading" }
@@ -32,6 +49,7 @@ export function Cards(): JSX.Element {
   const [archetype, setArchetype] = useState("");
   const [levelMin, setLevelMin] = useState("");
   const [levelMax, setLevelMax] = useState("");
+  const [sort, setSort] = useState<CardSort>("newest");
 
   // Progressive rendering: how many of the matched cards are currently mounted.
   const [visible, setVisible] = useState(PAGE);
@@ -119,8 +137,9 @@ export function Cards(): JSX.Element {
     if (archetype) q.archetype = archetype;
     if (levelMin !== "") q.levelMin = Number(levelMin);
     if (levelMax !== "") q.levelMax = Number(levelMax);
+    q.sort = sort;
     return q;
-  }, [debouncedText, supertype, attribute, race, frameType, archetype, levelMin, levelMax]);
+  }, [debouncedText, supertype, attribute, race, frameType, archetype, levelMin, levelMax, sort]);
 
   const results = useMemo(
     () => (prepared ? runQuery(prepared, query) : []),
@@ -176,7 +195,7 @@ export function Cards(): JSX.Element {
         <p>No card database found.</p>
         <p className="cards__hint">
           Run <code>pnpm import:cards</code> to populate{" "}
-          <code>assets/cards/db.json</code>, then reopen this tab.
+          <code>engine/cards/db.json</code>, then reopen this tab.
         </p>
       </div>
     );
@@ -228,6 +247,17 @@ export function Cards(): JSX.Element {
             placeholder="e.g. Blue-Eyes, DUAD-EN068, 89631139…"
             onChange={(e) => setText(e.target.value)}
           />
+        </label>
+
+        <label className="cards__field">
+          <span className="cards__label">Sort</span>
+          <select className="cards__input" value={sort} onChange={(e) => setSort(e.target.value as CardSort)}>
+            {SORTS.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
         </label>
 
         <label className="cards__field">

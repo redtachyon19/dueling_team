@@ -7,7 +7,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { supertypeOf } from "../cards/search.ts";
 import type { ArtworkTile } from "../cards/search.ts";
-import cardBack from "../../../../assets/cards/sleeves/original_card_sleeve.png";
+import cardBack from "../../../../ui/assets/sleeves/original_card_sleeve.png";
 
 /**
  * The fixed-width card preview shown beside a card grid. The single sidebar

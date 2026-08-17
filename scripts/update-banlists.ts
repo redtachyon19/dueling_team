@@ -7,21 +7,21 @@
 // Archives EVERY historical TCG banlist revision as immutable per-revision
 // JSON snapshots:
 //
-//   assets/banlists/YYYY-MM-DD.json
+//   engine/banlists/YYYY-MM-DD.json
 //
 // SOURCE: the comprehensive YGOPro forbidden/limited list
 // (Fluorohydride/ygopro lflist.conf), which accumulates every past list in a
 // single file. Each list is a section headed by `!YYYY.M[.D] TCG`; bare
 // `!YYYY.M` headers are OCG and are skipped (TCG ONLY). Body lines are
 // `passcode limit --name`, where 0=Forbidden, 1=Limited, 2=Semi-Limited.
-// Card names are resolved from assets/cards/db.json by passcode.
+// Card names are resolved from engine/cards/db.json by passcode.
 //
 // Behavior:
 //   - Append-only. Existing dated files are never overwritten.
-//   - Regenerate assets/banlists/index.json as a sorted manifest.
+//   - Regenerate engine/banlists/index.json as a sorted manifest.
 //
 // Only the importer scripts may touch the network. The running app reads only
-// the local files under assets/banlists/ and never fetches at runtime.
+// the local files under engine/banlists/ and never fetches at runtime.
 
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";

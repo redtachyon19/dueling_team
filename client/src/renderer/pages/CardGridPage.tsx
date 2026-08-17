@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import type { CardData } from "@duel/shared";
 import type { ArtworkTile } from "../cards/search.ts";
 import { CardViewer } from "./CardViewer.tsx";
-import cardBack from "../../../../assets/cards/sleeves/original_card_sleeve.png";
+import cardBack from "../../../../ui/assets/sleeves/original_card_sleeve.png";
 
 /** One tile in the grid: a card plus an optional code/caption shown above its name. */
 export interface GridCard {

@@ -2,8 +2,8 @@
 //
 // The JSR build re-exports with `export *`, which drops the default export
 // (createCore). We reach it via the dist module directly (same instance as the
-// named enum exports). Card data is read from the prebuilt assets/ocg/carddata.json
-// (decoded from BabelCDB at build time); Lua scripts from assets/ocg/script/.
+// named enum exports). Card data is read from the prebuilt assets/ocgcore/carddata.json
+// (decoded from BabelCDB at build time); Lua scripts from assets/ocgcore/script/.
 
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -59,12 +59,12 @@ interface CardDataJson {
 
 let cardMap: Map<number, OcgCardData> | null = null;
 
-/** Locate assets/ocg by walking up from this module (dev) or the app path. */
+/** Locate assets/ocgcore by walking up from this module (dev) or the app path. */
 function ocgDir(startDirs: string[]): string | null {
   for (const start of startDirs) {
     let dir = start;
     for (let i = 0; i < 8; i++) {
-      const candidate = path.join(dir, "assets", "ocg");
+      const candidate = path.join(dir, "assets", "ocgcore");
       if (existsSync(candidate)) return candidate;
       const parent = path.dirname(dir);
       if (parent === dir) break;
@@ -84,10 +84,10 @@ export interface OcgReaders {
   cards: OcgCardData[];
 }
 
-/** Build the card + script readers from assets/ocg. `startDirs` seeds the search. */
+/** Build the card + script readers from assets/ocgcore. `startDirs` seeds the search. */
 export function buildReaders(startDirs: string[]): OcgReaders {
   const dir = ocgDir(startDirs);
-  if (!dir) throw new Error("assets/ocg not found — run `pnpm import:ocg` first.");
+  if (!dir) throw new Error("assets/ocgcore not found — run `pnpm import:ocg` first.");
   const scriptDir = path.join(dir, "script");
 
   if (!cardMap) {

@@ -1,0 +1,67 @@
+{
+  "date": "2002-05-01",
+  "format": "TCG",
+  "source": "Yugipedia: Historic TCG Limitations Chart/2002–2010",
+  "fetchedAt": "2026-05-31T19:10:31.337Z",
+  "forbidden": [],
+  "limited": [
+    {
+      "id": 4031928,
+      "name": "Change of Heart"
+    },
+    {
+      "id": 53129443,
+      "name": "Dark Hole"
+    },
+    {
+      "id": 33396948,
+      "name": "Exodia the Forbidden One"
+    },
+    {
+      "id": 7902349,
+      "name": "Left Arm of the Forbidden One"
+    },
+    {
+      "id": 44519536,
+      "name": "Left Leg of the Forbidden One"
+    },
+    {
+      "id": 83764719,
+      "name": "Monster Reborn"
+    },
+    {
+      "id": 55144522,
+      "name": "Pot of Greed"
+    },
+    {
+      "id": 12580477,
+      "name": "Raigeki"
+    },
+    {
+      "id": 70903634,
+      "name": "Right Arm of the Forbidden One"
+    },
+    {
+      "id": 8124921,
+      "name": "Right Leg of the Forbidden One"
+    }
+  ],
+  "semiLimited": [
+    {
+      "id": 72892473,
+      "name": "Card Destruction"
+    },
+    {
+      "id": 26202165,
+      "name": "Sangan"
+    },
+    {
+      "id": 72302403,
+      "name": "Swords of Revealing Light"
+    },
+    {
+      "id": 78010363,
+      "name": "Witch of the Black Forest"
+    }
+  ]
+}

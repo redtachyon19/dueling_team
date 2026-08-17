@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { CardData, DuelCard, DuelDifficulty, DuelEvent, DuelFormat, DuelOption, DuelPhase, DuelPrompt, DuelResponse, DuelState, DuelUpdate, PromptCard } from "@duel/shared";
-import cardBack from "../../../../assets/cards/sleeves/original_card_sleeve.png";
+import cardBack from "../../../../ui/assets/sleeves/original_card_sleeve.png";
 import { toLogEntries } from "../cards/duel-log.ts";
 import { CardViewer } from "./CardViewer.tsx";
 

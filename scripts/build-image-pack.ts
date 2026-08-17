@@ -11,15 +11,17 @@
 //
 // Downloads, for every passcode in cards/db.json:
 //   - full card art (frame baked in, 813×1185)
-//                    → assets/cards/images/{passcode}.jpg
+//                    → assets/cards/{passcode}.jpg
 //   - cropped artwork only (no frame, 624×624)
-//                    → assets/cards/images_cropped/{passcode}.jpg
+//                    → assets/art/{passcode}.jpg
 // and for every set in sets/db.json:
 //   - set logo / box art
 //                    → assets/sets/images/{CODE}.jpg
 //
 // Resumable (skip-if-exists). TCG ONLY — db.json already excludes OCG-only
-// prints. All output lives inside the gitignored assets/.
+// prints. Output lives inside assets/; the two card-art directories written
+// here are the only gitignored paths in the repo, so a fresh clone runs this
+// to get its art. The set logos are tracked.
 
 import { join } from "node:path";
 import {
@@ -122,7 +124,7 @@ async function main() {
   if (!setsOnly) {
     const db = await readJson<CardDb>(PATHS.cardsDb);
     if (!db || !Array.isArray(db.cards)) {
-      console.error("✗ assets/cards/db.json not found. Run `pnpm import:cards` first.");
+      console.error("✗ engine/cards/db.json not found. Run `pnpm import:cards` first.");
       process.exit(1);
     }
     const allIds = [...new Set(db.cards.flatMap((c) => c.images ?? [c.id]))];

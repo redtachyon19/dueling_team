@@ -58,11 +58,25 @@ protocol.registerSchemesAsPrivileged([
  * network; it only reads these local files.
  */
 function findAssetsDir(): string | null {
+  return findRepoDir("assets");
+}
+
+/**
+ * The banlist and Genesys archives live under engine/, not assets/ — they are
+ * append-only records upstream can't re-serve, so they are tracked rather than
+ * treated as a re-downloadable asset.
+ */
+function findEngineDir(): string | null {
+  return findRepoDir("engine");
+}
+
+/** Walk up from this file (dev) or the app path (packaged) to a repo folder. */
+function findRepoDir(name: string): string | null {
   const starts = [__dirname, app.getAppPath()];
   for (const start of starts) {
     let dir = start;
     for (let i = 0; i < 8; i++) {
-      const candidate = path.join(dir, "assets");
+      const candidate = path.join(dir, name);
       if (existsSync(candidate)) return candidate;
       const parent = path.dirname(dir);
       if (parent === dir) break;
@@ -109,13 +123,13 @@ function createWindow(): void {
 }
 
 // --- IPC: load the local card database ------------------------------------
-// Returns the card array from assets/cards/db.json, or null when the
+// Returns the card array from engine/cards/db.json, or null when the
 // database hasn't been imported yet (run `pnpm import:cards`). The renderer
 // filters in-memory; the DB is read once per request.
 ipcMain.handle("cards:load", async () => {
-  const assets = findAssetsDir();
-  if (!assets) return null;
-  const dbPath = path.join(assets, "cards", "db.json");
+  const engine = findEngineDir();
+  if (!engine) return null;
+  const dbPath = path.join(engine, "cards", "db.json");
   try {
     const parsed = JSON.parse(await readFile(dbPath, "utf8"));
     return Array.isArray(parsed?.cards) ? parsed.cards : null;
@@ -125,13 +139,13 @@ ipcMain.handle("cards:load", async () => {
 });
 
 // --- IPC: load the local set database -------------------------------------
-// Returns the set array from assets/sets/db.json (used to resolve a
+// Returns the set array from engine/sets/db.json (used to resolve a
 // card's set codes to names/release dates), or null if not imported yet.
 ipcMain.handle("sets:load", async () => {
-  const assets = findAssetsDir();
-  if (!assets) return null;
+  const engine = findEngineDir();
+  if (!engine) return null;
   try {
-    const parsed = JSON.parse(await readFile(path.join(assets, "sets", "db.json"), "utf8"));
+    const parsed = JSON.parse(await readFile(path.join(engine, "sets", "db.json"), "utf8"));
     return Array.isArray(parsed?.sets) ? parsed.sets : null;
   } catch {
     return null;
@@ -188,45 +202,45 @@ ipcMain.handle("io:open", async (_e, opts?: { filters?: FileFilter[] }) => {
   }
 });
 
-// --- IPC: banlists (read-only, from assets/banlists) -----------------
+// --- IPC: banlists (read-only, from engine/banlists) -----------------
 // list → the index.json revisions array; load → a single dated revision file.
 ipcMain.handle("banlists:list", async () => {
-  const assets = findAssetsDir();
-  if (!assets) return [];
+  const engine = findEngineDir();
+  if (!engine) return [];
   try {
-    const idx = JSON.parse(await readFile(path.join(assets, "banlists", "index.json"), "utf8"));
+    const idx = JSON.parse(await readFile(path.join(engine, "banlists", "index.json"), "utf8"));
     return Array.isArray(idx?.revisions) ? idx.revisions : [];
   } catch {
     return [];
   }
 });
 ipcMain.handle("banlists:load", async (_e, date: string) => {
-  const assets = findAssetsDir();
-  if (!assets || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const engine = findEngineDir();
+  if (!engine || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   try {
-    return JSON.parse(await readFile(path.join(assets, "banlists", `${date}.json`), "utf8"));
+    return JSON.parse(await readFile(path.join(engine, "banlists", `${date}.json`), "utf8"));
   } catch {
     return null;
   }
 });
 
-// --- IPC: genesys point lists (read-only, from assets/genesys) -------------
+// --- IPC: genesys point lists (read-only, from engine/genesys) -------------
 // list → the index.json revisions array; load → a single dated revision file.
 ipcMain.handle("genesys:list", async () => {
-  const assets = findAssetsDir();
-  if (!assets) return [];
+  const engine = findEngineDir();
+  if (!engine) return [];
   try {
-    const idx = JSON.parse(await readFile(path.join(assets, "genesys", "index.json"), "utf8"));
+    const idx = JSON.parse(await readFile(path.join(engine, "genesys", "index.json"), "utf8"));
     return Array.isArray(idx?.revisions) ? idx.revisions : [];
   } catch {
     return [];
   }
 });
 ipcMain.handle("genesys:load", async (_e, date: string) => {
-  const assets = findAssetsDir();
-  if (!assets || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const engine = findEngineDir();
+  if (!engine || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   try {
-    return JSON.parse(await readFile(path.join(assets, "genesys", `${date}.json`), "utf8"));
+    return JSON.parse(await readFile(path.join(engine, "genesys", `${date}.json`), "utf8"));
   } catch {
     return null;
   }
@@ -236,12 +250,12 @@ ipcMain.handle("genesys:load", async (_e, date: string) => {
 // Computed here (not in the renderer) so we read the ~80 banlist / ~7 genesys
 // files once and cache the parsed revisions for the app session, instead of
 // shipping all of them across the bridge or re-reading per card.
-async function readAllRevisions(sub: string): Promise<any[]> {
-  const assets = findAssetsDir();
-  if (!assets) return [];
+async function readAllRevisions(sub: "banlists" | "genesys"): Promise<any[]> {
+  const engine = findEngineDir();
+  if (!engine) return [];
   let index: any;
   try {
-    index = JSON.parse(await readFile(path.join(assets, sub, "index.json"), "utf8"));
+    index = JSON.parse(await readFile(path.join(engine, sub, "index.json"), "utf8"));
   } catch {
     return [];
   }
@@ -249,7 +263,7 @@ async function readAllRevisions(sub: string): Promise<any[]> {
   const out: any[] = [];
   for (const m of metas) {
     try {
-      out.push(JSON.parse(await readFile(path.join(assets, sub, m.file), "utf8")));
+      out.push(JSON.parse(await readFile(path.join(engine, sub, m.file), "utf8")));
     } catch {
       // skip unreadable revision
     }
@@ -526,7 +540,7 @@ app.whenReady().then(() => {
       return new Response(null, { status: 404 });
     }
     try {
-      const buf = await readFile(path.join(assets, "cards", "images", `${id}.jpg`));
+      const buf = await readFile(path.join(assets, "cards", `${id}.jpg`));
       return new Response(new Uint8Array(buf), {
         status: 200,
         headers: {

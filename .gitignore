@@ -40,8 +40,33 @@ coverage/
 # Private review notes — local only
 reds-reviews/
 
-assets/ 
-# (Konami card data, art, render templates) IS tracked — this is a
-# PRIVATE repo and assets/konami/ is now the hand-curated source of truth, not
-# safely regenerable from scratch (manual edits, censorship fixes, the DUAD
-# patch would be lost). Keep this repo private; never push to a public mirror.
+# ------------------------------------------------------------------ assets/
+# EVERYTHING gitignored lives here, and nothing else is ignored. ~4.3 GB, and
+# every byte of it is rebuilt by a script — so it can be deleted wholesale and
+# restored with three commands:
+#
+#   pnpm import:ocg          → assets/ocgcore/  (Lua card scripts + carddata,
+#                              at the commits pinned in engine/ocgcore.lock.json)
+#   pnpm build:images        → assets/cards/    (full card art, {passcode}.jpg)
+#                              assets/art/      (cropped artwork)
+#                              assets/sets/images/ (set logos)
+#   pnpm build:set-images    → assets/sets/<type>/ (official box art)
+#
+# A fresh clone has no card art and cannot run a duel until those have run.
+#
+# NOTE the leading slash: it anchors this to the repo root. A bare `assets/`
+# would match ANY directory named "assets" at any depth and would silently
+# swallow ui/assets/ — the one folder of hand-made art that cannot be rebuilt.
+/assets/
+
+# What is deliberately NOT here, because no script can rebuild it:
+#   ui/assets/         hand-made render assets — card-frame templates, sleeves,
+#                      fonts, logos. The renderer imports a sleeve at build time.
+#   engine/cards/, engine/sets/       card + set databases
+#   engine/banlists/, engine/genesys/ append-only archives that upstream will
+#                      NEVER re-serve — only the current list is published, so a
+#                      lost revision is lost for good.
+#   engine/ocgcore.lock.json          the pin that makes assets/ocgcore/ safe to
+#                      throw away.
+#
+# This is a PRIVATE repo and must stay private; never push to a public mirror.

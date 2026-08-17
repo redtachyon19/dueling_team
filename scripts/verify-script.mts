@@ -14,7 +14,7 @@
 // How it judges: createDuel takes an `errorHandler(type, text)` the core calls
 // for Lua compile failures and effect-runtime errors. We wrap the script reader
 // so the candidate Lua is served for the target passcode (everything else falls
-// through to assets/ocg/script), create the card so its `initial_effect` runs,
+// through to assets/ocgcore/script), create the card so its `initial_effect` runs,
 // start a scratch duel, and step it briefly. Any ERROR log — or a thrown
 // exception, or the card failing to load — is a FAIL, and the captured text is
 // exactly what the generator's repair loop feeds back to the model.

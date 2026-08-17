@@ -1,0 +1,18 @@
+{
+  "_comment": "LOCKFILE for assets/ocgcore/. All of assets/ is gitignored; this file is tracked so `pnpm import:ocg` with no flags re-downloads exactly these commits. `--latest` bumps to master.",
+  "requestedRef": {
+    "scripts": "6d4cfc16326ddb4c1d74f5835d8e43e2c8228007",
+    "carddata": "7f3a3af2520a31122d6ed0db2077d3aba04a97d6"
+  },
+  "fetchedAt": "2026-08-17T04:00:11.235Z",
+  "scripts": {
+    "repo": "ProjectIgnis/CardScripts",
+    "commit": "6d4cfc16326ddb4c1d74f5835d8e43e2c8228007",
+    "fileCount": 22643
+  },
+  "carddata": {
+    "repo": "ProjectIgnis/BabelCDB",
+    "commit": "7f3a3af2520a31122d6ed0db2077d3aba04a97d6",
+    "cardCount": 14721
+  }
+}

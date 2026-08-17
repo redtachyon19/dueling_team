@@ -3,6 +3,7 @@
 // BUILD-TIME ONLY. Run manually by Red.
 //
 //   pnpm build:set-images                          (gentle: 1 req at a time)
+//   pnpm build:set-images --codes=CORI,LAVD        (just the sets that dropped)
 //   pnpm build:set-images --force --limit=20
 //   pnpm build:set-images --concurrency=2 --delay=600   (only if the site allows)
 //
@@ -19,7 +20,7 @@
 //                                     etc. — separate from the YGOPRODeck set
 //                                     logos in sets/images/)
 //
-// For every set code in assets/sets/db.json it requests
+// For every set code in engine/sets/db.json it requests
 //   https://www.yugioh-card.com/en/products/{code-lowercased}/
 // and takes the FIRST product image in document order (the hero/box art),
 // skipping site chrome (logos, icons) and WordPress responsive thumbnails
@@ -29,11 +30,11 @@
 //
 // Resumable (skip-if-exists). Sets without a code-slug product page (older /
 // OCG / promo sets) are reported as misses. TCG only — output lives inside the
-// gitignored-no-more, private assets/.
+// private, tracked assets/.
 
 import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
-import { PATHS, readJson, ensureDir, exists, pLimit, sleep, numFlag, hasFlag } from "./_lib.ts";
+import { PATHS, readJson, ensureDir, exists, pLimit, sleep, numFlag, hasFlag, listFlag } from "./_lib.ts";
 
 // The product pages sit behind a CDN/WAF that wants a browser-like UA.
 const UA =
@@ -109,13 +110,22 @@ async function main() {
   const force = hasFlag("force");
   const concurrency = numFlag("concurrency", 1);
   const limit = numFlag("limit", Infinity);
+  // --codes=CORI,LAVD → only those set codes. Use after a new set drops so a
+  // handful of pages get requested instead of re-walking all ~650 (every miss
+  // costs a page request, and the WAF notices).
+  const codes = new Set(listFlag("codes").map((c) => c.toUpperCase()));
 
   const db = await readJson<SetDb>(PATHS.setsDb);
   if (!db || !Array.isArray(db.sets)) {
-    console.error("✗ assets/sets/db.json not found. Run `pnpm import:sets` first.");
+    console.error("✗ engine/sets/db.json not found. Run `pnpm import:sets` first.");
     process.exit(1);
   }
-  const targets = Number.isFinite(limit) ? db.sets.slice(0, limit) : db.sets;
+  const selected = codes.size ? db.sets.filter((s) => codes.has(s.code.toUpperCase())) : db.sets;
+  if (codes.size) {
+    const unknown = [...codes].filter((c) => !db.sets.some((s) => s.code.toUpperCase() === c));
+    if (unknown.length) console.log(`  ⚠ not in sets/db.json, ignored: ${unknown.join(", ")}`);
+  }
+  const targets = Number.isFinite(limit) ? selected.slice(0, limit) : selected;
   console.log(`→ Scraping top set image for ${targets.length} set(s), concurrency ${concurrency}${force ? ", force" : ""}…`);
 
   const run = pLimit(concurrency);
