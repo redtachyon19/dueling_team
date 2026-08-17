@@ -1,17 +1,3 @@
-// Build-time effect-role classifier. MANUAL, like the other importers; never
-// imported by the running app. It mines the LOCAL ProjectIgnis Lua scripts
-// (assets/ocgcore/script/cNNN.lua) for coarse effect roles — what a card DOES —
-// because the numeric card DB has no text and the evaluation otherwise can't
-// tell a negate/handtrap/searcher from any other effect monster.
-//
-// This is a HEURISTIC over Lua source: it greps for the stable EDOPro engine
-// API tokens (Duel.NegateEffect, SearchMatchingCard, …) and constant flags
-// (EFFECT_DISABLE, LOCATION_HAND, EFFECT_TYPE_QUICK_O, …). It is approximate by
-// nature — the run prints coverage + a spot-check on well-known cards so its
-// accuracy is visible. Output: assets/ocgcore/card-roles.json (gitignored).
-//
-// Usage:  pnpm classify:roles
-
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { buildReaders } from "../client/src/main/duel/ocg.ts";

@@ -1,22 +1,10 @@
-// client/src/renderer/pages/CardDetail.tsx
-//
-// Full-page detail view for a single card, reached by clicking a tile in the
-// Cards search or set view. The card itself (art, name, stats, effect) is shown
-// by the shared CardViewer on the left, so this page's right column carries
-// only the extra detail that isn't in the viewer: release date, archetype,
-// passcode, banlist history, Genesys points history, and every set it was
-// printed in. Back (or Esc) returns to wherever you came from.
-
 import { useEffect, useState } from "react";
 import type { CardData, SetData, BanSpan, GenesysHistory } from "@duel/shared";
 import type { ArtworkTile } from "../cards/search.ts";
 import { CardViewer } from "./CardViewer.tsx";
 
-/** Set-code prefix, e.g. "DUAD-EN057" → "DUAD". */
 const prefixOf = (code: string): string => code.split("-")[0] ?? code;
 
-/** Color matching a card's frame. Pendulum variants take their base monster
- *  color. Tuned to read on the dark UI. */
 const FRAME_COLORS: Record<string, string> = {
   normal: "#d9b94e",
   effect: "#e0934a",
@@ -38,7 +26,6 @@ const BAN_COLORS: Record<string, string> = {
   "Semi-Limited": "#ffe14d",
 };
 
-/** "2025-07-03" → "Jul 3, 2025"; passes through anything unparseable. */
 function formatDate(iso: string | null): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso ?? "—";
   const [y, m, d] = iso.split("-").map(Number);
@@ -59,7 +46,6 @@ export function CardDetail({
   onOpenArchetype: (name: string) => void;
   onBack: () => void;
 }): JSX.Element {
-  // Esc returns to the grid, matching the back arrow.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onBack();
@@ -68,8 +54,6 @@ export function CardDetail({
     return () => window.removeEventListener("keydown", onKey);
   }, [onBack]);
 
-  // Printings sorted newest-first by set release date; undated prints sink to
-  // the bottom. Date comes from the set DB, resolved by the code's prefix.
   const dateOf = (code: string): string => setsByPrefix.get(prefixOf(code))?.tcgDate ?? "";
   const sortedSets = [...card.sets].sort((a, b) => dateOf(b.code).localeCompare(dateOf(a.code)));
 

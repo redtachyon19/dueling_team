@@ -7,16 +7,11 @@ import { SetDetail } from "./SetDetail.tsx";
 import { ArchetypeDetail } from "./ArchetypeDetail.tsx";
 import { AllSets } from "./AllSets.tsx";
 import { CardViewer } from "./CardViewer.tsx";
-// Card-back shown on a grid tile when its art isn't downloaded.
 import cardBack from "../../../../ui/assets/sleeves/original_card_sleeve.png";
 
-const PAGE = 120; // how many tiles to mount initially / reveal per scroll step
+const PAGE = 120;
 const SUPERTYPES: CardSupertype[] = ["Monster", "Spell", "Trap"];
 
-// Grid ordering. Defaults to Newest so the tab opens on the latest release
-// rather than raw db.json order. "Best match" is the text-relevance ranking,
-// which only does anything while there's a search term. (Deck's pool has its
-// own shorter list — no relevance there, since that grid is always filtered.)
 const SORTS: Array<{ value: CardSort; label: string }> = [
   { value: "newest", label: "Newest" },
   { value: "relevance", label: "Best match" },
@@ -33,13 +28,12 @@ const SORTS: Array<{ value: CardSort; label: string }> = [
 type LoadState =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "empty" } // bridge ok, but db.json missing / not imported
+  | { status: "empty" }
   | { status: "ready"; cards: CardData[] };
 
 export function Cards(): JSX.Element {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
 
-  // Filter inputs.
   const [text, setText] = useState("");
   const [debouncedText, setDebouncedText] = useState("");
   const [supertype, setSupertype] = useState("");
@@ -51,18 +45,12 @@ export function Cards(): JSX.Element {
   const [levelMax, setLevelMax] = useState("");
   const [sort, setSort] = useState<CardSort>("newest");
 
-  // Progressive rendering: how many of the matched cards are currently mounted.
   const [visible, setVisible] = useState(PAGE);
   const gridRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // The artwork shown in the left-side viewer. Updated on hover; stays put
-  // (sticky) when the cursor leaves so you can read it.
   const [preview, setPreview] = useState<ArtworkTile | null>(null);
 
-  // In-page navigation stack: empty = the search grid; otherwise the top entry
-  // is the open card-, set-, or archetype-detail page. A stack (not a single
-  // value) so you can go card → set → card → archetype → … and step back.
   type View =
     | { kind: "card"; card: CardData }
     | { kind: "set"; code: string }
@@ -76,10 +64,8 @@ export function Cards(): JSX.Element {
   const back = () => setStack((s) => s.slice(0, -1));
   const view = stack[stack.length - 1];
 
-  // Set database, loaded once, to resolve a card's set codes to release dates.
   const [sets, setSets] = useState<SetData[] | null>(null);
 
-  // Load the database once.
   useEffect(() => {
     let alive = true;
     if (!window.duel?.cards) {
@@ -98,20 +84,16 @@ export function Cards(): JSX.Element {
     };
   }, []);
 
-  // Load the set database once, for the detail view's set-release dates.
   useEffect(() => {
     window.duel?.sets?.load().then((s) => setSets(s ?? null)).catch(() => setSets(null));
   }, []);
 
-  // Index sets by code prefix (e.g. "DUAD") so a card print's full code
-  // ("DUAD-EN057") resolves to its set's name and release date.
   const setsByPrefix = useMemo(() => {
     const m = new Map<string, SetData>();
     for (const s of sets ?? []) m.set(s.code, s);
     return m;
   }, [sets]);
 
-  // Debounce the free-text input so we don't refilter on every keystroke.
   useEffect(() => {
     const t = setTimeout(() => setDebouncedText(text), 150);
     return () => clearTimeout(t);
@@ -119,14 +101,9 @@ export function Cards(): JSX.Element {
 
   const cards = load.status === "ready" ? load.cards : undefined;
 
-  // Pre-lowercase + precompute supertype ONCE when the DB loads, so each
-  // subsequent query is a cheap scan instead of re-lowercasing ~14k strings.
   const prepared = useMemo(() => (cards ? prepareCards(cards) : null), [cards]);
   const facets = useMemo(() => (cards ? deriveFacets(cards) : null), [cards]);
 
-  // Build the query with only the constraints that are actually set. Under
-  // exactOptionalPropertyTypes, omitting a key is required — assigning
-  // `undefined` to an optional field is a type error.
   const query: CardQuery = useMemo(() => {
     const q: CardQuery = {};
     if (debouncedText) q.text = debouncedText;
@@ -146,16 +123,13 @@ export function Cards(): JSX.Element {
     [prepared, query],
   );
 
-  // Expand to one tile per artwork (alternate arts each get their own tile).
   const tiles = useMemo(() => expandArtworks(results), [results]);
 
-  // Reset the reveal window and scroll to top whenever the result set changes.
   useEffect(() => {
     setVisible(PAGE);
     gridRef.current?.scrollTo({ top: 0 });
   }, [tiles]);
 
-  // Reveal more as the sentinel scrolls into view (infinite scroll).
   useEffect(() => {
     const sentinel = sentinelRef.current;
     const root = gridRef.current;
@@ -201,7 +175,6 @@ export function Cards(): JSX.Element {
     );
   }
 
-  // Clicking a tile opens the full-page detail view; back returns to the grid.
   if (view?.kind === "card") {
     return (
       <CardDetail
@@ -394,8 +367,6 @@ function CardTile({
   onHover: (t: ArtworkTile) => void;
   onSelect: (c: CardData) => void;
 }): JSX.Element {
-  // Grid tiles show ONLY the art — name/stats/effect live in the left viewer.
-  // Hover previews in the side panel; click opens the full detail page.
   return (
     <article
       className="card-tile"
@@ -419,7 +390,6 @@ function CardTile({
 function CardArt({ id, name }: { id: number; name: string }): JSX.Element {
   const [failed, setFailed] = useState(false);
   if (failed || !window.duel?.cards) {
-    // Art not downloaded (or bridge unavailable) → fall back to the card sleeve.
     return <img className="card-tile__art" src={cardBack} alt={name || "Card back"} loading="lazy" />;
   }
   return (

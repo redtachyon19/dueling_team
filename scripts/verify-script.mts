@@ -1,29 +1,3 @@
-// scripts/verify-script.mts
-//
-// BUILD-TIME ONLY. Execution verifier for a candidate ocgcore card script.
-//
-//   pnpm verify:script <passcode> [path/to/c<code>.lua]
-//   pnpm verify:script 55144522            # verify the on-disk script for a code
-//   pnpm verify:script 55144522 draft.lua  # verify a candidate file
-//
-// This is the trust anchor for the script generator: a generated script is only
-// as good as our ability to prove it isn't broken. Rather than eyeball Lua, we
-// load the candidate into the REAL engine (the same @n1xx1/ocgcore-wasm the app
-// runs) and let the core be the judge.
-//
-// How it judges: createDuel takes an `errorHandler(type, text)` the core calls
-// for Lua compile failures and effect-runtime errors. We wrap the script reader
-// so the candidate Lua is served for the target passcode (everything else falls
-// through to assets/ocgcore/script), create the card so its `initial_effect` runs,
-// start a scratch duel, and step it briefly. Any ERROR log — or a thrown
-// exception, or the card failing to load — is a FAIL, and the captured text is
-// exactly what the generator's repair loop feeds back to the model.
-//
-// SCOPE: this proves the script compiles, loads, and registers its effects
-// without erroring. It does NOT yet prove the effect does the RIGHT thing on a
-// real board (scripted-scenario checks are the next layer). A PASS here means
-// "the engine accepts it"; semantic correctness still needs human review.
-
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { OcgCardData, OcgCoreSync, OcgNewCardInfo } from "@n1xx1/ocgcore-wasm";
@@ -31,16 +5,11 @@ import { getCore, buildReaders, type OcgReaders } from "../client/src/main/duel/
 import { drive, autoPass, OcgDuelMode, OcgLocation, OcgPosition } from "../client/src/main/duel/resim.ts";
 import { buildEncoder, learnArchetypeSetcodes, type DbCard } from "./card-encoder.mts";
 
-const OCG_LOG_ERROR = 0; // OcgLogType.ERROR
-const OCG_LOG_FROM_SCRIPT = 1; // OcgLogType.from_script (Debug.Message / runtime error text)
-// A vanilla monster guaranteed to be in carddata — deck filler so startDuel has
-// non-empty decks. Vanilla ⇒ no script of its own ⇒ adds no error noise.
-const FILLER_CODE = 89631139; // Blue-Eyes White Dragon
+const OCG_LOG_ERROR = 0;
+const OCG_LOG_FROM_SCRIPT = 1;
+const FILLER_CODE = 89631139;
 const FILLER_PER_DECK = 8;
 
-/** Runtime Lua errors sometimes arrive as `from_script` log lines rather than
- *  ERROR; treat those that look like a Lua fault as failures, but let genuine
- *  Debug.Message output through. */
 const LUA_FAULT = /attempt to|nil value|stack traceback|bad argument|syntax error|unexpected symbol|'<eof>'|not enough|error/i;
 
 export interface VerifyError {
@@ -49,18 +18,12 @@ export interface VerifyError {
 }
 export interface VerifyResult {
   ok: boolean;
-  /** the engine could load card data for the passcode */
   loaded: boolean;
-  /** ERROR / fault-like log lines the core emitted while loading + running it */
   errors: VerifyError[];
-  /** non-fatal script output (Debug.Message etc.) */
   notes: VerifyError[];
-  /** exception thrown during setup/processing, if any */
   threw?: string | undefined;
 }
 
-/** Wrap the on-disk readers so `code` is served the candidate script (and,
- *  optionally, candidate card data) while every other card resolves normally. */
 function overlayReaders(base: OcgReaders, code: number, lua: string, cardData?: OcgCardData) {
   const scriptName = `c${code}.lua`;
   return {
@@ -71,11 +34,6 @@ function overlayReaders(base: OcgReaders, code: number, lua: string, cardData?: 
   };
 }
 
-/**
- * Load `lua` for `code` into the core and report whether the engine accepts it.
- * `cardData` overrides the passcode's metadata (needed for cards not yet in
- * carddata.json); omit it to use the on-disk entry.
- */
 export function verifyCardScript(
   core: OcgCoreSync,
   base: OcgReaders,
@@ -118,12 +76,9 @@ export function verifyCardScript(
     for (const team of [0, 1] as const)
       for (let i = 0; i < FILLER_PER_DECK; i++)
         newCard({ team, code: FILLER_CODE, location: OcgLocation.DECK, sequence: 1 });
-    // The card under test, in hand — its initial_effect runs on creation.
     newCard({ team: 0, code, location: OcgLocation.HAND });
 
     core.startDuel(handle);
-    // Step the duel briefly so on-load triggers / continuous registrations run
-    // and surface any runtime error. autoPass declines every prompt.
     drive(core, handle, {
       lp: [8000, 8000],
       respond: (q) => autoPass(q),
@@ -137,7 +92,6 @@ export function verifyCardScript(
       try {
         core.destroyDuel(handle);
       } catch {
-        /* ignore teardown errors */
       }
     }
   }
@@ -146,7 +100,6 @@ export function verifyCardScript(
   return { ok, loaded, errors, notes, threw };
 }
 
-// --- CLI -------------------------------------------------------------------
 async function main() {
   const [codeArg, luaPath] = process.argv.slice(2);
   const code = Number(codeArg);
@@ -162,9 +115,6 @@ async function main() {
     console.error(`✗ no script to verify for ${code} (pass a file, or import:ocg first).`);
     process.exit(2);
   }
-  // If the passcode isn't in carddata.json (e.g. a brand-new card, or one that
-  // only exists upstream under a different code), synthesize its card data from
-  // db.json so the engine can still load it — same path the generator uses.
   let cardData: OcgCardData | undefined;
   let synthesized = false;
   if (!base.cardReader(code)) {
@@ -192,7 +142,6 @@ async function main() {
   process.exit(r.ok ? 0 : 1);
 }
 
-// Run as CLI only (not when imported by the generator).
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((e) => {
     console.error("✗ verify-script failed:", e);

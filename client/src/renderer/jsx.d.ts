@@ -1,7 +1,3 @@
-// React 19's @types/react no longer declares a *global* `JSX` namespace — it
-// lives under `React.JSX`. Our components use the bare `JSX.Element` return
-// type (the long-standing convention), so we re-expose the global namespace
-// here, aliased to React's. One shim instead of annotating every component.
 import type { JSX as ReactJSX } from "react";
 
 declare global {

@@ -26,13 +26,13 @@ describe("runtime role lookup", () => {
     setCardRoles({ "111": ["negate"], "222": ["handtrap", "draw"], "333": ["floodgate"], "444": ["search"] });
     try {
       expect(getRoles(111)).toEqual(["negate"]);
-      expect(isDisruption(111)).toBe(true); // negate
-      expect(isDisruption(333)).toBe(true); // floodgate
-      expect(isDisruption(444)).toBe(false); // a searcher is not disruption
+      expect(isDisruption(111)).toBe(true);
+      expect(isDisruption(333)).toBe(true);
+      expect(isDisruption(444)).toBe(false);
       expect(isHandtrap(222)).toBe(true);
-      expect(getRoles(999)).toEqual([]); // unknown code
+      expect(getRoles(999)).toEqual([]);
     } finally {
-      setCardRoles({}); // reset so other suites see no roles
+      setCardRoles({});
     }
   });
 });

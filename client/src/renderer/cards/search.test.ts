@@ -60,7 +60,7 @@ describe("filterCards", () => {
   it("filters by level range and excludes level-less cards", () => {
     expect(filterCards(cards, { levelMin: 8 }).map((c) => c.id)).toEqual([1]);
     expect(filterCards(cards, { levelMin: 7, levelMax: 8 }).map((c) => c.id)).toEqual([1, 2]);
-    expect(filterCards(cards, { levelMin: 1 }).map((c) => c.id)).toEqual([1, 2]); // spells/traps have no level
+    expect(filterCards(cards, { levelMin: 1 }).map((c) => c.id)).toEqual([1, 2]);
   });
   it("ANDs constraints together", () => {
     expect(filterCards(cards, { text: "magician", attribute: "DARK" }).map((c) => c.id)).toEqual([2]);
@@ -79,7 +79,7 @@ describe("runQuery (indexed path) matches filterCards", () => {
     { supertype: "Spell" as const },
     { levelMin: 7, levelMax: 8 },
     { text: "magician", attribute: "DARK" },
-    { text: "MAGICIAN" }, // case-insensitivity
+    { text: "MAGICIAN" },
   ];
   for (const q of queries) {
     it(`parity for ${JSON.stringify(q)}`, () => {
@@ -90,17 +90,17 @@ describe("runQuery (indexed path) matches filterCards", () => {
 
 describe("runQuery ranks titles above effect text", () => {
   const ranked = prepareCards([
-    card({ id: 10, name: "Polymerization", desc: "Fusion Summon 1 monster." }), // desc-only
-    card({ id: 11, name: "Instant Fusion", desc: "Pay 1000 LP." }), // name contains
-    card({ id: 12, name: "Fusion Recovery", desc: "Add 1 card." }), // name prefix
+    card({ id: 10, name: "Polymerization", desc: "Fusion Summon 1 monster." }),
+    card({ id: 11, name: "Instant Fusion", desc: "Pay 1000 LP." }),
+    card({ id: 12, name: "Fusion Recovery", desc: "Add 1 card." }),
   ]);
   it("orders: name-prefix, then name-contains, then desc-only", () => {
     expect(runQuery(ranked, { text: "fusion" }).map((c) => c.id)).toEqual([12, 11, 10]);
   });
   it("a pure title match outranks a pure effect-text match", () => {
     const set = prepareCards([
-      card({ id: 20, name: "Mirror Force", desc: "Destroy attacking monsters." }), // desc-only for 'destroy'
-      card({ id: 21, name: "Destroy", desc: "Do nothing." }), // name match
+      card({ id: 20, name: "Mirror Force", desc: "Destroy attacking monsters." }),
+      card({ id: 21, name: "Destroy", desc: "Do nothing." }),
     ]);
     expect(runQuery(set, { text: "destroy" }).map((c) => c.id)).toEqual([21, 20]);
   });
@@ -108,10 +108,10 @@ describe("runQuery ranks titles above effect text", () => {
 
 describe("runQuery searches set number and passcode, ranked below title", () => {
   const cardsRanked = prepareCards([
-    card({ id: 11111111, name: "Duad Promo", desc: "no" }), // name match
-    card({ id: 22222222, name: "Other Card", desc: "no", sets: [{ code: "DUAD-EN068", name: "Duelist's Advance", rarity: "Common" }] }), // set-code match
-    card({ id: 98349765, name: "Unrelated", desc: "no" }), // passcode match
-    card({ id: 33333333, name: "Nope", desc: "mentions duad somewhere" }), // effect-text match
+    card({ id: 11111111, name: "Duad Promo", desc: "no" }),
+    card({ id: 22222222, name: "Other Card", desc: "no", sets: [{ code: "DUAD-EN068", name: "Duelist's Advance", rarity: "Common" }] }),
+    card({ id: 98349765, name: "Unrelated", desc: "no" }),
+    card({ id: 33333333, name: "Nope", desc: "mentions duad somewhere" }),
   ]);
   it("finds a card by its set code", () => {
     expect(runQuery(cardsRanked, { text: "DUAD-EN068" }).map((c) => c.id)).toEqual([22222222]);
@@ -120,14 +120,12 @@ describe("runQuery searches set number and passcode, ranked below title", () => 
     expect(runQuery(cardsRanked, { text: "98349765" }).map((c) => c.id)).toEqual([98349765]);
   });
   it("ranks title > set number > passcode > effect text", () => {
-    // 'duad' hits the title (11111111), a set code (22222222), and effect text (33333333).
     expect(runQuery(cardsRanked, { text: "duad" }).map((c) => c.id)).toEqual([11111111, 22222222, 33333333]);
   });
 });
 
 describe("expandArtworks", () => {
   it("emits one tile per DISTINCT image id, preserving order", () => {
-    // Upstream sometimes repeats an artwork id; each distinct art gets one tile.
     const tiles = expandArtworks([card({ id: 90590303, images: [90590303, 90590303, 90590304, 90590304] })]);
     expect(tiles.map((t) => t.imageId)).toEqual([90590303, 90590304]);
   });
@@ -137,7 +135,7 @@ describe("expandArtworks", () => {
       card({ id: 200, images: [200] }),
     ]);
     expect(tiles.map((t) => t.imageId)).toEqual([100, 101, 102, 200]);
-    expect(tiles[1]!.card.id).toBe(100); // alt art still maps to its card
+    expect(tiles[1]!.card.id).toBe(100);
   });
   it("falls back to card id when images[] is empty", () => {
     const tiles = expandArtworks([card({ id: 300, images: [] })]);

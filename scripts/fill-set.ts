@@ -1,18 +1,3 @@
-// scripts/fill-set.ts
-//
-// BUILD-TIME ONLY. Run manually by Red.
-//
-//   pnpm fill:set RA05          (or: pnpm fill:set --set=RA05)
-//
-// Repairs a set whose card count is short of what Yugipedia lists. For the
-// given set code it reads Yugipedia's TCG-EN set card list, finds every print
-// number missing from engine/cards/db.json, and ADDS it:
-//   - if the card already exists (by name) → attaches the missing print to it
-//     (e.g. an alternate/"stamp artwork" reprint YGOPRODeck didn't record);
-//   - if the card is missing entirely → fetches it from YGOPRODeck, normalizes
-//     it, adds it, and downloads its art.
-// Purely additive — never overwrites existing card data. Re-runnable.
-
 import { join } from "node:path";
 import {
   PATHS,
@@ -47,7 +32,6 @@ const cleanName = (raw: string): string =>
     .replace(/\{\{=\}\}/g, "=")
     .trim();
 
-/** Parse a Yugipedia "Set Card Lists" page into { fullCode → {name, rarity} }. */
 function parseSetList(wikitext: string, code: string): Map<string, { name: string; rarity: string | null }> {
   const out = new Map<string, { name: string; rarity: string | null }>();
   const codeRe = new RegExp(`^\\s*(${code}-[A-Za-z0-9]+)\\s*;\\s*([^;\\n]+?)\\s*(?:;\\s*([^\\n]+))?\\s*$`);
@@ -64,7 +48,6 @@ function parseSetList(wikitext: string, code: string): Map<string, { name: strin
   return out;
 }
 
-/** Normalize a YGOPRODeck card to our on-disk shape (mirrors import-cards). */
 function normalize(c: any): Card {
   const seen = new Set<string>();
   const sets: CardPrint[] = [];
@@ -112,7 +95,6 @@ async function main() {
   const setName = setByCode.get(code)?.name ?? code;
   console.log(`→ Filling ${code} (${setName})`);
 
-  // Yugipedia's authoritative TCG-EN list for this set.
   const page = `Set Card Lists:${setName} (TCG-EN)`;
   const parse = await fetchJson(
     `${YUGIPEDIA.api}?action=parse&prop=wikitext&format=json&page=${encodeURIComponent(page)}`,
@@ -150,7 +132,6 @@ async function main() {
       }
       continue;
     }
-    // Card not in DB at all — fetch it from YGOPRODeck by name and add it.
     try {
       const res = await fetchJson(`${YGO.cardinfo}?misc=yes&name=${encodeURIComponent(name)}`);
       const raw = res?.data?.[0];
@@ -180,7 +161,6 @@ async function main() {
   for (const a of addedCards) console.log(`    card:  ${a}`);
   if (unresolved.length) console.log(`  ⚠ Unresolved (not found on YGOPRODeck): ${unresolved.join(", ")}`);
 
-  // Download art only for newly-added cards (existing ones already have it).
   if (newArt.length) {
     await ensureDir(PATHS.cardImages);
     await ensureDir(PATHS.cardImagesCropped);

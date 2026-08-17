@@ -37,9 +37,9 @@ describe("buildOpponentModel + disruptionRisk", () => {
     setCardRoles({ "500": ["negate"] });
     try {
       const m = buildOpponentModel(view({
-        [OcgLocation.MZONE]: [{ code: 500, position: OcgPosition.FACEDOWN_DEFENSE }], // set monster — hidden
+        [OcgLocation.MZONE]: [{ code: 500, position: OcgPosition.FACEDOWN_DEFENSE }],
       }, 0), 0);
-      expect(m.revealed.negate).toBe(0); // its type/role was never inspected
+      expect(m.revealed.negate).toBe(0);
     } finally {
       setCardRoles({});
     }
@@ -66,6 +66,6 @@ describe("disruptionScenarios", () => {
     const negate = sc.find((s) => s.effect.kind === "negate")!;
     const none = sc.find((s) => s.effect.kind === "none")!;
     expect(negate.p).toBeGreaterThan(0);
-    expect(none.p).toBeLessThan(1); // there IS disruption risk
+    expect(none.p).toBeLessThan(1);
   });
 });

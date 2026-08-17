@@ -13,7 +13,7 @@ describe("rangeInclusive", () => {
 
 describe("stepIndex (3-column grid of 7 items)", () => {
   const cols = 3;
-  const count = 7; // indices 0..6 → rows [0,1,2][3,4,5][6]
+  const count = 7;
   it("moves left/right by one", () => {
     expect(stepIndex(4, "ArrowLeft", cols, count)).toBe(3);
     expect(stepIndex(4, "ArrowRight", cols, count)).toBe(5);
@@ -26,14 +26,14 @@ describe("stepIndex (3-column grid of 7 items)", () => {
     expect(stepIndex(0, "ArrowLeft", cols, count)).toBe(0);
     expect(stepIndex(6, "ArrowRight", cols, count)).toBe(6);
     expect(stepIndex(1, "ArrowUp", cols, count)).toBe(1);
-    expect(stepIndex(5, "ArrowDown", cols, count)).toBe(5); // 5+3=8 ≥ 7 → blocked
+    expect(stepIndex(5, "ArrowDown", cols, count)).toBe(5);
   });
   it("left/right may cross a row boundary (list-like)", () => {
-    expect(stepIndex(3, "ArrowLeft", cols, count)).toBe(2); // start of row 2 → end of row 1
-    expect(stepIndex(2, "ArrowRight", cols, count)).toBe(3); // end of row 1 → start of row 2
+    expect(stepIndex(3, "ArrowLeft", cols, count)).toBe(2);
+    expect(stepIndex(2, "ArrowRight", cols, count)).toBe(3);
   });
   it("handles empty grids and degenerate columns", () => {
     expect(stepIndex(0, "ArrowDown", cols, 0)).toBe(0);
-    expect(stepIndex(2, "ArrowRight", 0, 5)).toBe(3); // cols clamped to ≥1
+    expect(stepIndex(2, "ArrowRight", 0, 5)).toBe(3);
   });
 });

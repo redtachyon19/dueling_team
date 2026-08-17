@@ -1,23 +1,3 @@
-// scripts/card-encoder.mts
-//
-// BUILD-TIME ONLY. Encode a db.json card into the OcgCardData the engine's
-// cardReader needs — so a brand-new card that isn't in carddata.json yet can
-// still be handed to the verifier (and, later, the generator).
-//
-//   pnpm encode:card --validate     # encode every card also in carddata.json
-//                                   # and report field-match rate (self-check)
-//
-// It mirrors, in reverse, what import-ocg.ts decodes out of BabelCDB. The bit
-// constants (TYPE_/ATTRIBUTE_/RACE_/LINK_MARKER_) are parsed from the real
-// assets/ocgcore/script/constant.lua rather than hardcoded, so they track upstream.
-//
-// KNOWN APPROXIMATION: db.json gives a single `archetype` name, not the packed
-// setcodes a card really carries. We recover setcodes data-drivenly — a new card
-// inherits the setcode(s) shared by existing cards of the same archetype — which
-// covers "new card in an existing archetype"; a brand-new archetype yields no
-// setcode. Setcodes don't affect whether a script compiles/loads (what the
-// verifier checks today); they matter for the later semantic-scenario layer.
-
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { OcgCardData } from "@n1xx1/ocgcore-wasm";
@@ -26,20 +6,19 @@ import { buildReaders } from "../client/src/main/duel/ocg.ts";
 export interface DbCard {
   id: number;
   name: string;
-  type: string; // e.g. "Synchro Tuner Monster", "Quick-Play Spell Card"
-  frameType?: string; // e.g. "effect", "fusion", "normal" — distinguishes vanillas
-  race: string; // monster type OR spell/trap property
+  type: string;
+  frameType?: string;
+  race: string;
   archetype: string | null;
   attribute: string | null;
   atk: number | null;
   def: number | null;
-  level: number | null; // level OR xyz rank
+  level: number | null;
   scale: number | null;
   linkval: number | null;
   linkmarkers: string[] | null;
 }
 
-/** Parse `NAME = 0x..` / `NAME = A|B` constant blocks from constant.lua. */
 export function parseConstants(constantLua: string): Map<string, bigint> {
   const raw = new Map<string, string>();
   for (const line of constantLua.split("\n")) {
@@ -65,18 +44,12 @@ export function parseConstants(constantLua: string): Map<string, bigint> {
   return cache;
 }
 
-/** Normalize a db enum token to a constant suffix: uppercase, alnum only.
- *  (RACE_/ATTRIBUTE_/TYPE_ suffixes have no internal underscores.) */
 const key = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
-/** Link-marker suffixes DO have underscores (LINK_MARKER_BOTTOM_LEFT), so keep
- *  word boundaries: "Bottom-Left" → "BOTTOM_LEFT". */
 const markerKey = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "");
 
-// db race spellings that differ from the EDOPro RACE_ suffix.
 const RACE_ALIAS: Record<string, string> = {
-  DIVINEBEAST: "DIVINE", // db "Divine-Beast" → RACE_DIVINE
+  DIVINEBEAST: "DIVINE",
 };
-// Monster subtype token (in db `type`) → TYPE_ constant suffix.
 const MONSTER_SUBTYPES: Array<[RegExp, string]> = [
   [/\bNormal\b/, "NORMAL"], [/\bEffect\b/, "EFFECT"], [/\bFusion\b/, "FUSION"],
   [/\bRitual\b/, "RITUAL"], [/\bSynchro\b/, "SYNCHRO"], [/\bXyz\b/i, "XYZ"],
@@ -84,7 +57,6 @@ const MONSTER_SUBTYPES: Array<[RegExp, string]> = [
   [/\bFlip\b/, "FLIP"], [/\bUnion\b/, "UNION"], [/\bGemini\b/, "GEMINI"],
   [/\bSpirit\b/, "SPIRIT"], [/\bToon\b/, "TOON"],
 ];
-// Spell/Trap property (db `race`) → TYPE_ constant suffix (Normal adds nothing).
 const ST_PROPERTY: Record<string, string> = {
   CONTINUOUS: "CONTINUOUS", QUICKPLAY: "QUICKPLAY", FIELD: "FIELD",
   EQUIP: "EQUIP", RITUAL: "RITUAL", COUNTER: "COUNTER",
@@ -95,8 +67,6 @@ export interface Encoder {
   constants: Map<string, bigint>;
 }
 
-/** Build an encoder from constant.lua + an archetype→setcodes map learned from
- *  the existing carddata (so new cards inherit their archetype's setcode). */
 export function buildEncoder(scriptDir: string, archetypeSetcodes?: Map<string, number[]>): Encoder {
   const C = parseConstants(readFileSync(path.join(scriptDir, "constant.lua"), "utf8"));
   const bit = (suffix: string) => C.get(suffix) ?? 0n;
@@ -120,25 +90,19 @@ export function buildEncoder(scriptDir: string, archetypeSetcodes?: Map<string, 
       const suf = ST_PROPERTY[key(c.race)];
       if (suf) type |= bit(`TYPE_${suf}`);
     } else {
-      // Monster (incl. Token).
       type = bit("TYPE_MONSTER");
       const isToken = /Token/.test(t);
       if (isToken) type |= bit("TYPE_TOKEN");
       for (const [re, suf] of MONSTER_SUBTYPES) if (re.test(t)) type |= bit(`TYPE_${suf}`);
-      // YGOPRODeck omits "Effect" from extra-deck / special monster type strings
-      // ("Link Monster", "Tuner Monster", "Gemini Monster"). When neither Normal
-      // nor Effect was named, fill it in — vanillas are spotted by the card frame.
       const hasNorm = (type & bit("TYPE_NORMAL")) !== 0n;
       const hasEff = (type & bit("TYPE_EFFECT")) !== 0n;
       if (!isToken && !hasNorm && !hasEff) {
         type |= /^normal/.test(c.frameType ?? "") ? bit("TYPE_NORMAL") : bit("TYPE_EFFECT");
       }
       const isLink = /\bLink\b/.test(t);
-      // race + attribute
       const rk = RACE_ALIAS[key(c.race)] ?? key(c.race);
       race = bit(`RACE_${rk}`);
       if (c.attribute) attribute = bit(`ATTRIBUTE_${key(c.attribute)}`);
-      // level: link rating for Links, else level/rank
       level = (isLink ? c.linkval : c.level) ?? 0;
       if (/Pendulum/.test(t)) { lscale = c.scale ?? 0; rscale = c.scale ?? 0; }
       if (isLink) {
@@ -156,7 +120,7 @@ export function buildEncoder(scriptDir: string, archetypeSetcodes?: Map<string, 
       type: Number(type),
       level,
       attribute: Number(attribute),
-      race, // bigint
+      race,
       attack: c.atk ?? 0,
       defense,
       lscale,
@@ -168,7 +132,6 @@ export function buildEncoder(scriptDir: string, archetypeSetcodes?: Map<string, 
   return { encode, constants: C };
 }
 
-/** Learn archetype → setcode(s) from cards present in BOTH db.json and carddata. */
 export function learnArchetypeSetcodes(
   db: { cards: DbCard[] },
   carddata: Record<string, { setcodes: number[] }>,
@@ -182,7 +145,6 @@ export function learnArchetypeSetcodes(
     for (const sc of entry.setcodes) counts.set(sc, (counts.get(sc) ?? 0) + 1);
     tally.set(c.archetype, counts);
   }
-  // Keep setcodes shared by a majority of the archetype's carded members.
   const out = new Map<string, number[]>();
   for (const [arch, counts] of tally) {
     const total = Math.max(...counts.values());
@@ -192,7 +154,6 @@ export function learnArchetypeSetcodes(
   return out;
 }
 
-// --- CLI: validate the encoder against the real carddata.json ---------------
 async function main() {
   const readers = buildReaders([process.cwd()]);
   const db = JSON.parse(readFileSync(path.join(process.cwd(), "assets/cards/db.json"), "utf8")) as { cards: DbCard[] };

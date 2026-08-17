@@ -10,7 +10,6 @@ import {
   type GenesysLookup,
 } from "../cards/deck.ts";
 
-/** Extra duel options chosen in setup and threaded to the board. */
 type StartOpts = { seed?: string | undefined; opponent?: "goldfish" | "ai" | undefined; difficulty?: DuelDifficulty | undefined; aiDeckId?: string | undefined };
 
 type Stage =
@@ -20,8 +19,6 @@ type Stage =
   | { view: "online" }
   | { view: "netplay"; deckId: string; format: DuelFormat };
 
-// The five mode tiles. Only Advanced (modern field) and Genesys (classic field,
-// points format) are implemented; the rest are placeholders.
 const MODES: { key: string; cls: string; ready: boolean }[] = [
   { key: "Advanced", cls: "duel-card--g1", ready: true },
   { key: "Genesys", cls: "duel-card--g2", ready: true },
@@ -30,8 +27,6 @@ const MODES: { key: string; cls: string; ready: boolean }[] = [
   { key: "Draft & Sealed Play", cls: "duel-card--g5", ready: true },
 ];
 
-// The Duel tab. Landing screen is the five format/mode tiles; choosing one
-// leads to a deck pick and then a (goldfish) duel powered by ocgcore.
 export function Duel(): JSX.Element {
   const [stage, setStage] = useState<Stage>({ view: "menu" });
 
@@ -101,22 +96,17 @@ export function Duel(): JSX.Element {
 }
 
 function DuelSetup({ mode, onBack, onStart }: { mode: string; onBack: () => void; onStart: (deckId: string, opts: StartOpts) => void }): JSX.Element {
-  // Only Genesys changes the rules; the other tiles play the standard (Advanced) field.
   const format: DuelFormat = mode === "Genesys" ? "genesys" : "advanced";
   const [decks, setDecks] = useState<DeckSummary[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
-  // Setup options.
   const [seed, setSeed] = useState("");
-  // Opponent: goldfish (passes) or DuelBot (the evaluation-driven AI).
   const [oppMode, setOppMode] = useState<"goldfish" | "duelbot">("goldfish");
-  // Deck the AI plays with; "__default__" = the built-in goldfish opponent deck.
   const AI_DEFAULT_DECK = "__default__";
   const [aiDeckSel, setAiDeckSel] = useState<string>(AI_DEFAULT_DECK);
   const [aiDeck, setAiDeck] = useState<Deck | null>(null);
   const [aiDeckFailed, setAiDeckFailed] = useState(false);
 
-  // Legality context: the card DB plus the active banlist (Advanced) or Genesys list.
   const cardsRef = useRef<Map<number, CardData>>(new Map());
   const [banlist, setBanlist] = useState<BanlistLookup | null>(null);
   const [genesys, setGenesys] = useState<GenesysLookup | null>(null);
@@ -131,8 +121,6 @@ function DuelSetup({ mode, onBack, onStart }: { mode: string; onBack: () => void
     }).catch(() => setDecks([]));
   }, []);
 
-  // Load the legality context once per format: cards always, plus the current
-  // banlist or Genesys revision (list() is newest-first, so [0] is current).
   useEffect(() => {
     let alive = true;
     setCtxReady(false);
@@ -161,7 +149,6 @@ function DuelSetup({ mode, onBack, onStart }: { mode: string; onBack: () => void
     return () => { alive = false; };
   }, [format]);
 
-  // Load the selected deck's full contents so we can validate it.
   useEffect(() => {
     if (!selected) { setSelectedDeck(null); return; }
     let alive = true;
@@ -171,7 +158,6 @@ function DuelSetup({ mode, onBack, onStart }: { mode: string; onBack: () => void
     return () => { alive = false; };
   }, [selected]);
 
-  // Load the AI's chosen deck (when not the built-in default) so it's validated too.
   useEffect(() => {
     if (aiDeckSel === AI_DEFAULT_DECK) { setAiDeck(null); setAiDeckFailed(false); return; }
     let alive = true;
@@ -188,7 +174,6 @@ function DuelSetup({ mode, onBack, onStart }: { mode: string; onBack: () => void
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDeck, ctxReady, banlist, genesys, format]);
 
-  // Validate the AI's custom deck for the same format (built-in default needs no check).
   const aiUsingCustom = oppMode !== "goldfish" && aiDeckSel !== AI_DEFAULT_DECK;
   const aiIssues = useMemo(() => {
     if (!aiUsingCustom || !aiDeck || !ctxReady) return [];
@@ -198,7 +183,6 @@ function DuelSetup({ mode, onBack, onStart }: { mode: string; onBack: () => void
 
   const revDate = format === "genesys" ? genesys?.date : banlist?.date;
   const checking = !!selected && (!ctxReady || !selectedDeck);
-  // The AI's custom deck must also be loaded and legal before we can start.
   const aiReady = !aiUsingCustom || (!!aiDeck && aiIssues.length === 0);
   const canStart = !!selected && ctxReady && !!selectedDeck && issues.length === 0 && aiReady;
   const start = () => {
@@ -208,7 +192,6 @@ function DuelSetup({ mode, onBack, onStart }: { mode: string; onBack: () => void
     onStart(selected, {
       seed: /^\d+$/.test(seedClean) ? seedClean : undefined,
       opponent: isAi ? "ai" : "goldfish",
-      // Difficulty tiers are hidden for now — DuelBot always plays full strength.
       difficulty: isAi ? "hard" : undefined,
       aiDeckId: aiUsingCustom ? aiDeckSel : undefined,
     });

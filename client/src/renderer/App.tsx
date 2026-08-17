@@ -8,8 +8,6 @@ import { Settings } from "./pages/Settings";
 
 const TABS = ["Home", "Cards", "Deck", "Duel", "Social"] as const;
 type Tab = (typeof TABS)[number];
-// Settings isn't one of the five content tabs — it's a utility page opened by
-// the gear at the far right of the nav.
 type View = Tab | "Settings";
 
 const PAGES: Record<Tab, () => JSX.Element> = {
@@ -39,7 +37,6 @@ export function App(): JSX.Element {
   const [active, setActive] = useState<View>("Home");
   const Page = active === "Settings" ? Settings : PAGES[active];
 
-  // Cmd/Ctrl + 1–5 jumps to the matching tab.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;

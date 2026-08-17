@@ -1,16 +1,3 @@
-// Build-time generator of a DIVERSE pool of decks for self-play training. To
-// learn a *general* evaluation (one that values any deck's boards well, not a
-// single archetype), the trainer plays many different matchups — so it needs
-// varied, legal, runnable decks. ocgcore doesn't enforce TCG construction rules
-// at duelNewCard, so "legal" here just means 40 main / supported cards; the
-// trainer validates RUNNABILITY by checking each deck produces decisive games.
-//
-// Flavors are biased toward compositions that run cleanly headlessly (mostly
-// Normal monsters — no scripts to stall on — plus simple trap/spell suites),
-// differing in power curve, board width, and trap density so the evaluation
-// sees a broad distribution of positions. Role tags (card-roles.ts) flavor the
-// spell/trap suites (removal/negate for control, draw/search for value).
-
 import type { OcgCardData } from "@n1xx1/ocgcore-wasm";
 import { getRoles } from "./card-roles.ts";
 
@@ -20,8 +7,6 @@ export interface PoolDeck {
   extra: number[];
 }
 
-/** Parse a .ydk deck file's text (EDOPro/YGOPro format) into passcodes. Lets
- *  the trainer use REAL decks dropped into a `decks/` folder. */
 export function parseYdkText(text: string): { main: number[]; extra: number[] } {
   const main: number[] = [], extra: number[] = [];
   let section: "main" | "extra" | "side" = "main";
@@ -38,7 +23,7 @@ export function parseYdkText(text: string): { main: number[]; extra: number[] } 
 }
 
 const T_MONSTER = 0x1, T_SPELL = 0x2, T_TRAP = 0x4, T_NORMAL = 0x10;
-const T_EXTRA = 0x40 | 0x2000 | 0x800000 | 0x4000000; // Fusion|Synchro|Xyz|Link
+const T_EXTRA = 0x40 | 0x2000 | 0x800000 | 0x4000000;
 
 function shuffle<T>(a: readonly T[], rng: () => number): T[] {
   const out = a.slice();
@@ -46,8 +31,6 @@ function shuffle<T>(a: readonly T[], rng: () => number): T[] {
   return out;
 }
 
-/** Fill `count` slots from `distinct` codes, at most `copies` of each (cycling
- *  if the pool is too small). */
 function take(distinct: number[], count: number, copies: number): number[] {
   const out: number[] = [];
   for (const code of distinct) { for (let k = 0; k < copies && out.length < count; k++) out.push(code); if (out.length >= count) break; }
@@ -56,51 +39,34 @@ function take(distinct: number[], count: number, copies: number): number[] {
   return out.slice(0, count);
 }
 
-/** Generate a diverse deck pool. Each flavor is parameterized by `rng` so a
- *  different seed yields a different concrete deck of that flavor. */
 export function generateDeckPool(cards: OcgCardData[], rng: () => number): PoolDeck[] {
   const ty = (c: OcgCardData) => c.type as number;
   const isMon = (c: OcgCardData) => (ty(c) & T_MONSTER) !== 0 && (ty(c) & T_EXTRA) === 0;
   const isNormalMon = (c: OcgCardData) => isMon(c) && (ty(c) & T_NORMAL) !== 0;
-  const low = (c: OcgCardData) => (c.level ?? 0) >= 1 && (c.level ?? 0) <= 4; // summonable without tribute
+  const low = (c: OcgCardData) => (c.level ?? 0) >= 1 && (c.level ?? 0) <= 4;
   const isTrap = (c: OcgCardData) => (ty(c) & T_TRAP) !== 0;
   const isSpell = (c: OcgCardData) => (ty(c) & T_SPELL) !== 0;
   const role = (code: number, r: string) => getRoles(code).includes(r as never);
   const codes = (pool: OcgCardData[]) => shuffle(pool, rng).map((c) => c.code);
 
-  // Safe building blocks: Normal (scriptless) monsters by power band.
   const bigBeaters = cards.filter((c) => isNormalMon(c) && low(c) && (c.attack ?? 0) >= 1800);
   const smallBeaters = cards.filter((c) => isNormalMon(c) && low(c) && (c.attack ?? 0) >= 1000 && (c.attack ?? 0) < 1800);
   const walls = cards.filter((c) => isNormalMon(c) && low(c) && (c.defense ?? 0) >= 1700);
-  // Role-flavored spell/trap suites.
   const removalTraps = cards.filter((c) => isTrap(c) && (role(c.code, "removal") || role(c.code, "negate")));
   const drawSpells = cards.filter((c) => isSpell(c) && (role(c.code, "draw") || role(c.code, "search")));
 
   const decks: PoolDeck[] = [];
   const add = (name: string, main: number[]) => { if (main.length === 40) decks.push({ name, main, extra: [] }); };
 
-  // 1) Aggro: 40 big Normal beaters.
   add("aggro", take(codes(bigBeaters), 40, 3));
-  // 2) Swarm: 40 smaller Normal monsters (wider boards, lower power).
   add("swarm", take(codes(smallBeaters), 40, 3));
-  // 3) Trap control: defensive walls + removal/negate traps.
   add("trap-control", [...take(codes(walls), 22, 3), ...take(codes(removalTraps), 18, 3)]);
-  // 4) Value: beaters + draw/search spells.
   add("value", [...take(codes(bigBeaters), 28, 3), ...take(codes(drawSpells), 12, 3)]);
-  // 5) Midrange: a broad random mix of beaters + a light trap line.
   add("midrange", [...take(codes([...bigBeaters, ...smallBeaters]), 30, 2), ...take(codes(removalTraps), 10, 2)]);
 
   return decks;
 }
 
-/** Build ARCHETYPE decks from the `setcodes` field: cards sharing an archetype
- *  are designed to work together (searchers, extenders, bosses, negates), so —
- *  unlike the synthetic flavors above — these actually exercise the effect /
- *  disruption / combo features the evaluation cares about. Candidate archetypes
- *  are those with enough Main-Deck monsters; each deck is the archetype's cards
- *  padded with generic draw/search staples to 40, plus its Extra-Deck bodies.
- *  Quality varies and some won't run cleanly headlessly — the trainer validates
- *  each by decisive-game rate and keeps the runnable ones. */
 export function generateArchetypeDecks(cards: OcgCardData[], rng: () => number, maxDecks = 16): PoolDeck[] {
   const ty = (c: OcgCardData) => c.type as number;
   const isMon = (c: OcgCardData) => (ty(c) & T_MONSTER) !== 0 && (ty(c) & T_EXTRA) === 0;

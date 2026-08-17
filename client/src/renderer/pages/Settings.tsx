@@ -1,11 +1,5 @@
-// client/src/renderer/pages/Settings.tsx
-//
-// Settings page, reached from the gear icon at the right of the nav bar.
-// App info plus gesture references.
-
 type Gesture = { keys: string[]; action: string };
 
-/** Deck-builder gestures. Keep in sync with the handlers in pages/Deck.tsx. */
 const DECK_GESTURES: Gesture[] = [
   { keys: ["Hover"], action: "Preview a card in the viewer" },
   { keys: ["Click"], action: "Pin a card to the viewer (click again to unpin)" },
@@ -23,7 +17,6 @@ const DECK_GESTURES: Gesture[] = [
   { keys: ["Drag a selection"], action: "Add / move / remove every selected card at once" },
 ];
 
-/** In-duel gestures. Keep in sync with the gesture handlers in pages/DuelBoard.tsx. */
 const DUEL_GESTURES: Gesture[] = [
   { keys: ["Hold deck 3s"], action: "Surrender the duel" },
   { keys: ["Drag spell/trap", "→ Spell/Trap zone"], action: "Activate the card" },

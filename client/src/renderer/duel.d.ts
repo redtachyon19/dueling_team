@@ -1,5 +1,3 @@
-// Ambient declaration of the preload bridge (window.duel). Mirrors the object
-// exposed in src/preload/index.ts.
 import type {
   CardData,
   SetData,

@@ -11,7 +11,7 @@ describe("overExtensionPenalty (behavioral hold-back lever)", () => {
   });
   it("scales with risk and quadratically with bodies beyond the safe size", () => {
     expect(overExtensionPenalty(0.9, 5)).toBeGreaterThan(overExtensionPenalty(0.2, 5));
-    expect(overExtensionPenalty(0.9, 5)).toBeCloseTo(0.9 * 300 * 9, 5); // e=3 → e²=9
+    expect(overExtensionPenalty(0.9, 5)).toBeCloseTo(0.9 * 300 * 9, 5);
   });
   it("grows super-linearly: the 5th body costs far more than the 3rd", () => {
     const third = overExtensionPenalty(0.8, 3) - overExtensionPenalty(0.8, 2);

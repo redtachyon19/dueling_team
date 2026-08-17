@@ -1,28 +1,3 @@
-// scripts/update-banlists.ts
-//
-// BUILD-TIME ONLY. Run manually by Red.
-//
-//   pnpm import:banlists
-//
-// Archives EVERY historical TCG banlist revision as immutable per-revision
-// JSON snapshots:
-//
-//   engine/banlists/YYYY-MM-DD.json
-//
-// SOURCE: the comprehensive YGOPro forbidden/limited list
-// (Fluorohydride/ygopro lflist.conf), which accumulates every past list in a
-// single file. Each list is a section headed by `!YYYY.M[.D] TCG`; bare
-// `!YYYY.M` headers are OCG and are skipped (TCG ONLY). Body lines are
-// `passcode limit --name`, where 0=Forbidden, 1=Limited, 2=Semi-Limited.
-// Card names are resolved from engine/cards/db.json by passcode.
-//
-// Behavior:
-//   - Append-only. Existing dated files are never overwritten.
-//   - Regenerate engine/banlists/index.json as a sorted manifest.
-//
-// Only the importer scripts may touch the network. The running app reads only
-// the local files under engine/banlists/ and never fetches at runtime.
-
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -50,13 +25,12 @@ interface Revision {
 }
 
 interface ParsedList {
-  date: string; // YYYY-MM-DD
+  date: string;
   forbidden: number[];
   limited: number[];
   semiLimited: number[];
 }
 
-/** `!2026.5 TCG` / `!2014.1.1 TCG` → "2026-05-01" / "2014-01-01". OCG → null. */
 function headerToDate(header: string): string | null {
   const m = header.match(/^!\s*(\d{4})\.(\d{1,2})(?:\.(\d{1,2}))?\s+TCG\b/i);
   if (!m) return null;
@@ -65,7 +39,6 @@ function headerToDate(header: string): string | null {
   return `${y}-${pad(mo!)}-${pad(d ?? "1")}`;
 }
 
-/** Parse the comprehensive lflist into per-revision TCG lists. */
 function parseLflist(text: string): ParsedList[] {
   const lists: ParsedList[] = [];
   let cur: ParsedList | null = null;
@@ -85,7 +58,6 @@ function parseLflist(text: string): ParsedList[] {
     if (limit === 0) cur.forbidden.push(id);
     else if (limit === 1) cur.limited.push(id);
     else if (limit === 2) cur.semiLimited.push(id);
-    // limit >= 3 (unlimited) shouldn't appear, but is ignored if it does.
   }
   return lists;
 }
@@ -93,7 +65,7 @@ function parseLflist(text: string): ParsedList[] {
 async function regenerateIndex(): Promise<number> {
   await ensureDir(PATHS.banlists);
   const files = (await readdir(PATHS.banlists)).filter((f) => /^\d{4}-\d{2}-\d{2}\.json$/.test(f));
-  files.sort().reverse(); // newest first
+  files.sort().reverse();
   const revisions = [];
   for (const file of files) {
     const data = JSON.parse(await readFile(join(PATHS.banlists, file), "utf8")) as Revision;
@@ -113,7 +85,6 @@ async function regenerateIndex(): Promise<number> {
 }
 
 async function main() {
-  // Card-name lookup from the local DB (so revision files are human-readable).
   const db = await readJson<{ cards: Entry[] }>(PATHS.cardsDb);
   const nameOf = new Map<number, string>();
   if (db?.cards) for (const c of db.cards) nameOf.set(c.id, c.name);
@@ -137,7 +108,7 @@ async function main() {
     const file = join(PATHS.banlists, `${list.date}.json`);
     if (await exists(file)) {
       skipped++;
-      continue; // append-only
+      continue;
     }
     const revision: Revision = {
       date: list.date,

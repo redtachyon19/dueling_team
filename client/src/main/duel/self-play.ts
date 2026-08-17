@@ -1,13 +1,3 @@
-// Headless self-play: runs a full ocgcore duel with BOTH seats driven by the
-// evaluation-driven AI, and records each strategic decision's feature vector
-// labeled by who eventually won. This is the data source the trainer
-// (scripts/train-ai.ts) fits the evaluation weights on. Pure local computation
-// — no I/O beyond the card/script readers, no network.
-//
-// Per-player weights are supported by swapping the module-global eval weights
-// immediately before each player's decision (safe: the core is synchronous and
-// single-threaded), so a learned vector can be measured against a baseline.
-
 import {
   OcgProcessResult, OcgMessageType, OcgResponseType, OcgPosition, OcgLocation, OcgDuelMode, OcgQueryFlags,
   SelectIdleCMDAction, SelectBattleCMDAction,
@@ -17,16 +7,14 @@ import { aiDecide, features, setEvalWeights, type AiContext, type AiStats } from
 import { buildAiContext, cardStats, type CoreView } from "./ai-context.ts";
 import type { OcgReaders } from "./ocg.ts";
 
-/** A recorded position: the feature vector from `player`'s perspective. */
 export interface Sample {
   f: number[];
   player: 0 | 1;
-  /** 1 if `player` won this game, 0 otherwise (filled once the game ends). */
   won: number;
 }
 
 export interface GameResult {
-  winner: number; // 0, 1, or -1 (no result / draw within the cap)
+  winner: number;
   turns: number;
   samples: Sample[];
 }
@@ -35,13 +23,9 @@ export interface PlayGameOptions {
   seed: bigint;
   deck0: number[];
   deck1: number[];
-  /** Eval weights per seat; `evaluate` uses the active one for each decision. */
   weights: [readonly number[], readonly number[]];
-  /** Probability of a random (exploratory) idle/battle action. 0 = pure AI. */
   epsilon: number;
-  /** Deterministic RNG in [0,1). */
   rng: () => number;
-  /** Hard cap on engine steps (deck-out usually ends a game well before this). */
   maxSteps?: number;
 }
 
@@ -55,7 +39,6 @@ const QUESTION = new Set<number>([
   OcgMessageType.ANNOUNCE_CARD, OcgMessageType.ANNOUNCE_NUMBER, OcgMessageType.ROCK_PAPER_SCISSORS,
 ]);
 
-/** Safe defaults for any prompt the AI declines (mirrors the session's auto-pass). */
 function autoPass(m: any): OcgResponse | null {
   switch (m.type) {
     case OcgMessageType.SELECT_IDLECMD: return { type: OcgResponseType.SELECT_IDLECMD, action: m.to_ep ? SelectIdleCMDAction.TO_EP : SelectIdleCMDAction.TO_BP, index: null };
@@ -81,9 +64,6 @@ function autoPass(m: any): OcgResponse | null {
   }
 }
 
-/** A uniformly-random LEGAL idle/battle action, for exploration. Top-level
- *  idle/battle actions are legal by construction (the core lists only legal
- *  ones); any sub-prompt that follows is handled by aiDecide/auto-pass. */
 function randomAction(m: any, rng: () => number): OcgResponse | null {
   if (m.type === OcgMessageType.SELECT_IDLECMD) {
     const A = SelectIdleCMDAction;
@@ -112,7 +92,6 @@ function randomAction(m: any, rng: () => number): OcgResponse | null {
   return null;
 }
 
-/** Run one full self-play duel and return its winner + recorded samples. */
 export function playGame(core: OcgCoreSync, readers: OcgReaders, opts: PlayGameOptions): GameResult {
   const seed4: [bigint, bigint, bigint, bigint] = [opts.seed | 1n, (opts.seed >> 16n) | 1n, (opts.seed >> 32n) | 1n, (opts.seed >> 48n) | 1n];
   const handle = core.createDuel({
@@ -166,20 +145,18 @@ export function playGame(core: OcgCoreSync, readers: OcgReaders, opts: PlayGameO
     if (!q) break;
     const decider = (q.player ?? 0) as 0 | 1;
 
-    // Track the attacker's ATK so the attack-target picker can choose well.
     if (q.type === OcgMessageType.SELECT_BATTLECMD) attackerAtk[decider] = 0;
 
     setEvalWeights(opts.weights[decider]);
     const ctx: AiContext = buildAiContext(view, decider, attackerAtk[decider]);
 
-    // Record strategic decisions (main-phase and battle-phase command choices).
     if (q.type === OcgMessageType.SELECT_IDLECMD || q.type === OcgMessageType.SELECT_BATTLECMD) {
       samples.push({ f: features(ctx.board!), player: decider, won: 0 });
     }
 
     const explore = (q.type === OcgMessageType.SELECT_IDLECMD || q.type === OcgMessageType.SELECT_BATTLECMD) && opts.rng() < opts.epsilon;
     const resp = (explore ? randomAction(q, opts.rng) : null) ?? aiDecide(q, ctx, "hard") ?? autoPass(q);
-    if (!resp) break; // unhandled prompt → abandon this game
+    if (!resp) break;
 
     if (q.type === OcgMessageType.SELECT_BATTLECMD && resp.type === OcgResponseType.SELECT_BATTLECMD && resp.action === SelectBattleCMDAction.SELECT_BATTLE && resp.index != null) {
       attackerAtk[decider] = stats(q.attacks[resp.index]?.code)?.atk ?? 0;
@@ -188,10 +165,8 @@ export function playGame(core: OcgCoreSync, readers: OcgReaders, opts: PlayGameO
   }
 
   core.destroyDuel(handle);
-  // Label every recorded position by whether its mover won.
   if (winner === 0 || winner === 1) for (const s of samples) s.won = s.player === winner ? 1 : 0;
   return { winner, turns, samples: winner === 0 || winner === 1 ? samples : [] };
 }
 
-// Query flags: enough for atk/def/position/level evaluation (mirrors session).
 const QUERY_FLAGS = (OcgQueryFlags.CODE | OcgQueryFlags.POSITION | OcgQueryFlags.ATTACK | OcgQueryFlags.DEFENSE | OcgQueryFlags.LEVEL) as unknown as OcgQueryFlags;

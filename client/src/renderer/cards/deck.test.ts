@@ -123,7 +123,7 @@ describe("validateDeckForFormat", () => {
 
   it("advanced: more copies than a Limited card allows is rejected", () => {
     const rev: BanlistRevision = { date: "2025-01-01", format: "TCG", source: "", fetchedAt: "", forbidden: [], limited: [{ id: 100, name: "V100" }], semiLimited: [] };
-    const deck = emptyDeck({ main: [100, 100, ...fillIds.slice(1, 39)] }); // 2 of a Limited + 38 = 40
+    const deck = emptyDeck({ main: [100, 100, ...fillIds.slice(1, 39)] });
     const issues = validateDeckForFormat(deck, "advanced", { cards: baseCards, banlist: buildBanlistLookup(rev), genesys: null });
     expect(issues.some((i) => /max 1/.test(i.message))).toBe(true);
   });
@@ -142,14 +142,14 @@ describe("validateDeckForFormat", () => {
 
   it("genesys: a deck over the points cap is rejected", () => {
     const rev: GenesysRevision = { date: "2025-01-01", pointCap: 100, source: "", fetchedAt: "", cards: [{ id: 100, name: "V100", points: 60 }, { id: 101, name: "V101", points: 60 }] };
-    const deck = emptyDeck({ main: [...fillIds] }); // 60 + 60 = 120 > 100
+    const deck = emptyDeck({ main: [...fillIds] });
     const issues = validateDeckForFormat(deck, "genesys", { cards: baseCards, banlist: null, genesys: buildGenesysLookup(rev) });
     expect(issues.some((i) => /over the cap/.test(i.message))).toBe(true);
   });
 
   it("genesys: a legal deck under the cap passes", () => {
     const rev: GenesysRevision = { date: "2025-01-01", pointCap: 100, source: "", fetchedAt: "", cards: [{ id: 100, name: "V100", points: 40 }] };
-    const deck = emptyDeck({ main: [...fillIds] }); // 40 ≤ 100, all effect monsters
+    const deck = emptyDeck({ main: [...fillIds] });
     expect(validateDeckForFormat(deck, "genesys", { cards: baseCards, banlist: null, genesys: buildGenesysLookup(rev) })).toEqual([]);
   });
 });

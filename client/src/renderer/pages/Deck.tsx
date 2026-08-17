@@ -24,7 +24,6 @@ import cardBack from "../../../../ui/assets/sleeves/original_card_sleeve.png";
 
 const RESULT_CAP = 120;
 
-/** Sort options in the pool meta bar (matches DM Champion). */
 const SORTS: Array<{ value: CardSort; label: string }> = [
   { value: "name", label: "Sort: Name" },
   { value: "atk-desc", label: "Sort: ATK ↓" },
@@ -35,7 +34,6 @@ const SORTS: Array<{ value: CardSort; label: string }> = [
   { value: "newest", label: "Sort: Newest" },
 ];
 
-/** Multi-select filter chips, matching DM Champion's filter panel. */
 const TYPE_CHIPS: Array<{ value: CardSupertype; label: string }> = [
   { value: "Monster", label: "Monster" },
   { value: "Spell", label: "Spell" },
@@ -52,47 +50,41 @@ const FRAME_CHIPS: Array<{ value: string; label: string }> = [
   { value: "pendulum", label: "Pendulum" },
 ];
 const ATTRIBUTE_CHIPS = ["LIGHT", "DARK", "EARTH", "WATER", "FIRE", "WIND", "DIVINE"];
-const LEVELS = Array.from({ length: 13 }, (_, i) => i + 1); // 1..13 (Level / Rank)
+const LEVELS = Array.from({ length: 13 }, (_, i) => i + 1);
 
-/** Toggle a value in/out of a multi-select array (immutably). */
 function toggleValue<T>(arr: readonly T[], v: T): T[] {
   return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
 }
 
 type ExportFormat = "ydk" | "txt" | "json" | "png";
 
-/** A selectable grid: one of the deck zones, or the search pool. */
 type GridKey = Zone | "pool";
 
-/** The active multi-selection: tile indices within a single grid. */
 interface Selection {
   grid: GridKey;
-  anchor: number; // where a shift-range pivots
-  focus: number; // the moving end; the card shown in the viewer
-  indices: number[]; // every selected index within `grid`
+  anchor: number;
+  focus: number;
+  indices: number[];
 }
 
 const EMPTY_SELECTION: ReadonlySet<number> = new Set();
 const ARROW_KEYS = new Set<string>(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
 
-/** Count a grid's rendered columns from its resolved grid-template-columns. */
 function gridColumns(el: Element): number {
   const tpl = getComputedStyle(el).gridTemplateColumns;
   if (!tpl || tpl === "none") return 1;
   return tpl.split(" ").filter(Boolean).length;
 }
 
-/** Which legality system is applied in the editor. */
 type FormatMode = "none" | "tcg" | "genesys";
-/** The currently selected format: an Advanced (TCG) banlist or a Genesys list. */
 interface FormatSel {
   kind: "tcg" | "genesys";
   date: string;
 }
-const BASE_COLS = 10; // cards per row before overlap kicks in
-const MAX_COLS = 15; // cards per row at full compression
+const BASE_COLS = 10;
+const MAX_COLS = 15;
 const GAP = 6;
-const CARD_RATIO = 1185 / 813; // height / width
+const CARD_RATIO = 1185 / 813;
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
@@ -108,7 +100,6 @@ function newDeck(): Deck {
   return { id: uid(), name: "New Deck", tags: [], main: [], extra: [], side: [], enforceLimits: true, createdAt: t, updatedAt: t };
 }
 
-/** Width of an element, kept current via ResizeObserver. */
 function useElementWidth<T extends HTMLElement>(ref: React.RefObject<T | null>): number {
   const [w, setW] = useState(0);
   useEffect(() => {
@@ -129,9 +120,6 @@ export function Deck(): JSX.Element {
   return <DeckList onOpen={setEditing} />;
 }
 
-// ---------------------------------------------------------------------------
-// Deck list (no card viewer here)
-// ---------------------------------------------------------------------------
 function DeckList({ onOpen }: { onOpen: (d: Deck) => void }): JSX.Element {
   const [decks, setDecks] = useState<DeckSummary[] | null>(null);
 
@@ -190,26 +178,19 @@ function DeckList({ onOpen }: { onOpen: (d: Deck) => void }): JSX.Element {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Deck editor (card viewer left · zones center · search right)
-// ---------------------------------------------------------------------------
 function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }): JSX.Element {
   const [deck, setDeck] = useState<Deck>(initial);
   const [dirty, setDirty] = useState(false);
-  const [preview, setPreview] = useState<CardData | null>(null); // transiently hovered card
-  const [pinned, setPinned] = useState<CardData | null>(null); // focused card shown in the viewer
-  const [sel, setSel] = useState<Selection | null>(null); // multi-select (click + Shift+Arrow)
+  const [preview, setPreview] = useState<CardData | null>(null);
+  const [pinned, setPinned] = useState<CardData | null>(null);
+  const [sel, setSel] = useState<Selection | null>(null);
   const [flash, setFlash] = useState("");
 
-  // The viewer shows the focused (pinned) card if any, otherwise the hovered one.
   const shown = pinned ?? preview;
 
-  // The selected index set for a grid — empty unless it's the active selection grid.
   const selectedFor = (grid: GridKey): ReadonlySet<number> =>
     sel && sel.grid === grid ? new Set(sel.indices) : EMPTY_SELECTION;
 
-  // Click a card to select + pin it. Shift+click extends the range from the
-  // anchor; a plain click on the sole selected card clears the selection.
   const selectCard = (grid: GridKey, index: number, card: CardData, e: React.MouseEvent) => {
     if (e.shiftKey && sel && sel.grid === grid) {
       setPinned(card);
@@ -236,7 +217,6 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
     window.duel?.cards?.load().then((c) => setCards(c ?? [])).catch(() => setCards([]));
   }, []);
 
-  // Format selector: the available revisions for each format + the selection.
   const [tcgRevs, setTcgRevs] = useState<BanlistRevisionMeta[]>([]);
   const [genesysRevs, setGenesysRevs] = useState<GenesysRevisionMeta[]>([]);
   const [format, setFormat] = useState<FormatSel | null>(null);
@@ -248,7 +228,6 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
     window.duel?.genesys?.list().then((revs) => setGenesysRevs(revs ?? [])).catch(() => setGenesysRevs([]));
   }, []);
 
-  // Load (and build a lookup for) whichever format is selected; clear the other.
   useEffect(() => {
     setTcgLookup(null);
     setGenesysLookup(null);
@@ -295,7 +274,6 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
     onExit();
   };
 
-  // Transient status line in the editor bar (export/import feedback).
   const flashMsg = (msg: string) => {
     setFlash(msg);
     if (msg) window.setTimeout(() => setFlash((cur) => (cur === msg ? "" : cur)), 2600);
@@ -304,8 +282,6 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
   const nameOf = (id: number): string => byId.get(id)?.name ?? `#${id}`;
   const YDK_FILTERS = [{ name: "YDK Deck", extensions: ["ydk"] }];
 
-  // Import a .ydk into the open deck (replaces zones; names the deck after the
-  // file). Limits aren't enforced on import — an over-cap import just warns.
   const doImport = async () => {
     if (!window.duel?.io) return;
     const res = await window.duel.io.open({ filters: YDK_FILTERS });
@@ -325,7 +301,6 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
     flashMsg(`Imported ${zones.main.length}+${zones.extra.length}+${zones.side.length}`);
   };
 
-  // Export the deck to a chosen format via a native Save dialog.
   const exportDeck = async (fmt: ExportFormat) => {
     if (!window.duel?.io) return;
     const base = safeFilename(deck.name);
@@ -369,7 +344,6 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
     if (r.ok) mutate(r.deck);
   };
 
-  // Fold-add several cards to a zone (auto-routed) in one mutation.
   const addManyTo = (cards: CardData[], zone: Zone) => {
     let d = deck;
     for (const c of cards) {
@@ -379,18 +353,9 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
     if (d !== deck) mutate(d);
   };
 
-  // Drag bookkeeping: the source grid + the cards being dragged — the whole
-  // selection when the grabbed tile is part of it, otherwise just that card —
-  // plus the source indices (deck zones only). A deck drag dropped on a zone
-  // moves the cards; dropped anywhere else it removes them. A pool drag dropped
-  // on a zone adds the cards. Clicking never removes.
   const dragRef = useRef<{ from: GridKey; indices: number[]; cards: CardData[] } | null>(null);
-  // Set once a drop is handled (by a zone or the outside-the-deck area) so the
-  // dragend fallback doesn't act twice.
   const droppedHandledRef = useRef(false);
 
-  // Begin dragging cards already in the deck (carries the selection if the
-  // grabbed card is part of it).
   const pickUp = (zone: Zone, index: number, id: number, e: React.DragEvent) => {
     e.dataTransfer.setData("text/card-id", String(id));
     e.dataTransfer.effectAllowed = "move";
@@ -401,13 +366,11 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
     droppedHandledRef.current = false;
   };
 
-  // Begin dragging from the search pool (SearchPanel resolves the cards).
   const beginPoolDrag = (cards: CardData[]) => {
     dragRef.current = { from: "pool", indices: [], cards };
     droppedHandledRef.current = false;
   };
 
-  // Remove every card the active deck drag is carrying.
   const removeDragged = () => {
     const d = dragRef.current;
     if (!d || d.from === "pool") return;
@@ -415,18 +378,13 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
     mutate({ ...deck, [d.from]: deck[d.from].filter((_, i) => !gone.has(i)) });
   };
 
-  // Drop on the area outside the zones → remove the dragged deck cards. Because
-  // this is a real drop target the release is accepted immediately, so the cards
-  // are removed instantly with no native snap-back delay.
   const dropOutside = (e: React.DragEvent) => {
     e.preventDefault();
-    if (!dragRef.current || dragRef.current.from === "pool") return; // pool drag outside → no-op
+    if (!dragRef.current || dragRef.current.from === "pool") return;
     droppedHandledRef.current = true;
     removeDragged();
   };
 
-  // End of a drag: clean up; if a deck drag wasn't handled (released off-window),
-  // remove its cards as a fallback. Clear the now-stale selection either way.
   const endDrag = () => {
     if (!droppedHandledRef.current) removeDragged();
     dragRef.current = null;
@@ -434,17 +392,11 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
     setSel(null);
   };
 
-  // Drop onto a zone: a pool drag ADDS its cards; a deck drag MOVES them. The
-  // move is per-card (atomic remove+add) so a full target never drops a card.
-  // stopPropagation keeps the drop from also triggering the outside-removal.
   const drop = (zone: Zone, e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     droppedHandledRef.current = true;
     const payload = dragRef.current;
-    // Rearrange within the same zone: drop on a tile to reposition the dragged
-    // copies there (before/after by which half was dropped on); on empty space
-    // → move to the end. No limit checks — same cards, same zone.
     if (payload && payload.from === zone) {
       const arr = deck[zone];
       const tile = (e.target as HTMLElement).closest("[data-index]") as HTMLElement | null;
@@ -479,15 +431,11 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
       if (at < 0) continue;
       const afterRemove: Deck = { ...d, [payload.from]: d[payload.from].filter((_, i) => i !== at) };
       const r = addCard(afterRemove, c, zone);
-      if (r.ok) d = r.deck; // target full / copy-capped → this card stays put
+      if (r.ok) d = r.deck;
     }
     if (d !== deck) mutate(d);
   };
 
-  // Keyboard: arrows move the focus through the active grid, Shift+arrow extends
-  // the selection (range from the anchor), Delete removes the selected deck
-  // cards, Enter adds the selected pool cards, Escape clears. All ignored while
-  // typing in a field so text editing and dropdowns keep their keys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const ae = document.activeElement as HTMLElement | null;
@@ -658,7 +606,6 @@ function TagEditor({ tags, onChange }: { tags: string[]; onChange: (t: string[])
   );
 }
 
-/** Export dropdown: pick a format, fire onExport. Closes on outside click. */
 function ExportMenu({ onExport }: { onExport: (fmt: ExportFormat) => void }): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -703,20 +650,16 @@ function ExportMenu({ onExport }: { onExport: (fmt: ExportFormat) => void }): JS
   );
 }
 
-/** Short label + class suffix for a ban status. */
 function statusBadge(status: BanStatus): { label: string; cls: string } | null {
   switch (status) {
     case "Forbidden": return { label: "Forbidden", cls: "forbidden" };
     case "Limited": return { label: "Limited", cls: "limited" };
     case "Semi-Limited": return { label: "Semi", cls: "semi" };
     case "Unreleased": return { label: "Unreleased", cls: "unreleased" };
-    default: return null; // Unlimited → no badge
+    default: return null;
   }
 }
 
-// Deck-builder viewer: the SAME CardViewer as the Cards database, with the
-// deck-specific format badge + pin indicator passed in. Keeping one component
-// means both viewers always render identically.
 function DeckViewerPanel({ card, mode, status, cost, isPinned, selectedCount }: { card: CardData | null; mode: FormatMode; status: BanStatus | null; cost: number; isPinned: boolean; selectedCount: number }): JSX.Element {
   const tile = card ? { card, imageId: card.images[0] ?? card.id } : null;
   const sb = status ? statusBadge(status) : null;
@@ -734,20 +677,17 @@ function DeckViewerPanel({ card, mode, status, cost, isPinned, selectedCount }: 
   return <CardViewer tile={tile} badge={badge} pinLabel={pinLabel} />;
 }
 
-/** Small corner badge overlaid on a mini tile (zones + search). */
 function MiniBadge({ status }: { status: BanStatus }): JSX.Element | null {
   const b = statusBadge(status);
   if (!b) return null;
   return <span className={`minibadge minibadge--${b.cls}`} title={status} />;
 }
 
-/** Genesys point cost as a corner chip on a mini tile (hidden when free). */
 function MiniPoints({ points }: { points: number }): JSX.Element | null {
   if (points <= 0) return null;
   return <span className="minipts" title={`${points} points`}>{points}</span>;
 }
 
-/** Overlay the right badge for the active format on a mini tile. */
 function MiniOverlay({ mode, status, cost }: { mode: FormatMode; status: BanStatus; cost: number }): JSX.Element | null {
   if (mode === "tcg") return <MiniBadge status={status} />;
   if (mode === "genesys") return <MiniPoints points={cost} />;
@@ -768,17 +708,14 @@ function DeckZone({
 }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const width = useElementWidth(ref);
-  const ids = deck[zone]; // each copy is its own tile — no grouping
+  const ids = deck[zone];
 
-  // Columns: Main keeps `rows` rows and grows columns 10→15; Extra/Side are a
-  // single row that grows 10→15. Beyond BASE_COLS, cards overlap to fit.
   const need = rows > 1 ? Math.ceil(ids.length / rows) : ids.length;
   const cols = clamp(need, BASE_COLS, MAX_COLS);
 
-  // Card size so BASE_COLS fill the measured width; overlap shrinks the step.
   const cw = width > 0 ? width / BASE_COLS - GAP : 70;
   const ch = cw * CARD_RATIO;
-  const fullStep = cw + GAP; // no overlap (cols ≤ 10)
+  const fullStep = cw + GAP;
   const step = cols <= BASE_COLS ? fullStep : (width - cw) / (cols - 1);
 
   return (
@@ -883,11 +820,8 @@ function SearchPanel({
 
   const results = useMemo(() => (prepared ? runQuery(prepared, query) : []), [prepared, query]);
 
-  // The result order/contents changed → drop any pool selection so its indices
-  // can't point at the wrong cards.
   useEffect(() => { onResultsChange(); }, [results]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Active-filter count shown on the filter badge (text and sort excluded, as in DM Champion).
   const filterCount =
     classes.length + frames.length + attributes.length +
     (levelMin ? 1 : 0) + (levelMax ? 1 : 0) +
@@ -911,8 +845,6 @@ function SearchPanel({
     setSort("name");
   };
 
-  // Drag from the pool: carry the whole selection if the grabbed tile is part
-  // of it, else just this card. The deck zones (parent) handle the drop.
   const startPoolDrag = (index: number, card: CardData, e: React.DragEvent) => {
     e.dataTransfer.setData("text/card-id", String(card.id));
     e.dataTransfer.effectAllowed = "copy";
@@ -1080,11 +1012,6 @@ function SearchPanel({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Format picker: quick-pick the last 2 Advanced (TCG) + last 2 Genesys lists,
-// with a clock that reveals the full history of each format on hover so the
-// menu stays short.
-// ---------------------------------------------------------------------------
 interface FmtRow {
   date: string;
   detail: string;
@@ -1093,8 +1020,8 @@ interface FmtRow {
 function FormatPicker({
   tcg, genesys, value, onChange,
 }: {
-  tcg: BanlistRevisionMeta[]; // index.json order: newest-first
-  genesys: GenesysRevisionMeta[]; // index.json order: newest-first
+  tcg: BanlistRevisionMeta[];
+  genesys: GenesysRevisionMeta[];
   value: FormatSel | null;
   onChange: (sel: FormatSel | null) => void;
 }): JSX.Element {
@@ -1161,7 +1088,7 @@ function FormatGroup({
   onPick: (sel: FormatSel) => void;
 }): JSX.Element {
   const [showHistory, setShowHistory] = useState(false);
-  const recent = rows.slice(0, 2); // newest-first → the last 2 revisions
+  const recent = rows.slice(0, 2);
 
   const itemRow = (r: FmtRow) => (
     <button
@@ -1197,12 +1124,6 @@ function FormatGroup({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Deck PNG export: render the three zones to a canvas of card art and return a
-// PNG data URL. Card art is served by the card:// protocol, which sends
-// `Access-Control-Allow-Origin: *` so a crossOrigin image draws without
-// tainting the canvas; unavailable art falls back to the wrapped card name.
-// ---------------------------------------------------------------------------
 function loadImageEl(src: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -1292,7 +1213,6 @@ async function renderDeckPng(deck: Deck, byId: Map<number, CardData>): Promise<s
     ctx.fillText(`${s.title.toUpperCase()}   ${s.ids.length}`, PAD, y + 10);
     y += SECTION_H;
 
-    // Preload this section's art in parallel.
     const imgs = await Promise.all(
       s.ids.map((id) => {
         const card = byId.get(id);
@@ -1331,7 +1251,6 @@ function Art({ id, name, cls }: { id: number; name: string; cls: string }): JSX.
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [id]);
   if (failed || !window.duel?.cards) {
-    // Art not downloaded (or bridge unavailable) → fall back to the card sleeve.
     return <img className={cls} src={cardBack} alt={name || "Card back"} loading="lazy" />;
   }
   return (

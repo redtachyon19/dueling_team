@@ -1,23 +1,3 @@
-// scripts/import-sets.ts
-//
-// BUILD-TIME ONLY. Run manually by Red.
-//
-//   pnpm import:sets
-//
-// Pulls the full TCG set list from YGOPRODeck's cardsets endpoint and joins it
-// with the card database (which records each card's set codes) to produce, for
-// every set: code, name, TCG release date, card count, and the passcodes
-// printed in it. Writes:
-//
-//   engine/sets/db.json
-//   engine/sets/index.json   (lightweight manifest)
-//
-// Requires `pnpm import:cards` to have run first (so set → card mapping can be
-// resolved from db.json's per-card `sets`). TCG ONLY.
-//
-// Set logos/box art are downloaded separately by build-image-pack.ts into
-// assets/sets/images/{CODE}.jpg.
-
 import { join } from "node:path";
 import { PATHS, YGO, fetchJson, fetchSetReleaseDate, writeJson, readJson, isoDate, hasFlag } from "./_lib.ts";
 
@@ -32,7 +12,6 @@ interface UpstreamSet {
   tcg_date?: string;
 }
 
-/** Set-code prefix from a full print code, e.g. "LOB-EN001" → "LOB". */
 const prefixOf = (code: string): string => code.split("-")[0]!;
 
 async function main() {
@@ -42,8 +21,6 @@ async function main() {
     process.exit(1);
   }
 
-  // Reverse index: set-code prefix → passcodes, plus the set name seen on the
-  // card's prints (used as a fallback name for sets upstream doesn't list).
   const cardsBySet = new Map<string, number[]>();
   const nameBySet = new Map<string, string>();
   for (const c of db.cards) {
@@ -62,11 +39,6 @@ async function main() {
   const upByCode = new Map<string, UpstreamSet>();
   for (const s of upstream) if (!upByCode.has(s.set_code)) upByCode.set(s.set_code, s);
 
-  // Build an entry for EVERY set that has cards in our DB — the union of
-  // YGOPRODeck's list and the set codes present on cards. YGOPRODeck's cardsets
-  // endpoint silently omits whole sets (e.g. Battles of Legend: Glorious
-  // Gallery, 2-Player Starter Set, Dark Beginning); without this union those
-  // sets would have no name/date and show "—" in the app.
   let sets = [...cardsBySet.entries()].map(([code, cards]) => {
     const up = upByCode.get(code);
     return {
@@ -79,8 +51,6 @@ async function main() {
   });
   console.log(`  ${sets.length} sets have cards in the local DB`);
 
-  // Backfill release dates from Yugipedia for sets upstream omitted or left
-  // undated. Cache by name so duplicate codes for one set query Yugipedia once.
   const needDate = sets.filter((s) => !s.tcgDate);
   if (needDate.length) {
     console.log(`→ Backfilling release dates from Yugipedia for ${needDate.length} set(s)…`);
@@ -93,11 +63,6 @@ async function main() {
     console.log(`  recovered dates for ${filled}/${needDate.length} set(s)`);
   }
 
-  // Drop sets that haven't been released yet. import-cards already excludes
-  // unreleased cards, but a future set that REPRINTS released cards would still
-  // show up here off those reprints — and an announced-but-unreleased product
-  // has no official TCG card list yet. Undated sets are kept (old/promo sets
-  // Yugipedia couldn't date), same rule as the card importer.
   const today = isoDate();
   const upcoming = sets.filter((s) => s.tcgDate && s.tcgDate > today);
   if (upcoming.length && !hasFlag("include-unreleased")) {

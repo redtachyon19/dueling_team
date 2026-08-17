@@ -1,18 +1,3 @@
-// scripts/rag-corpus.mts
-//
-// BUILD-TIME ONLY. No network. The retrieval half of the script generator's RAG:
-// given a new card, find the existing cards whose effects are most similar and
-// hand the model their (card text → Lua) pairs as worked examples.
-//
-//   pnpm rag:preview <passcode> [k=6]   # show the nearest exemplars for a card
-//
-// Retrieval is fully local (BM25 over normalized effect text + structural
-// boosts). Card effect text is templated enough — "Add 1 <X> from your Deck to
-// your hand", "Special Summon this card", "destroy that target" — that lexical
-// similarity reliably surfaces scripts with the same shape, with no embeddings
-// service or GPU. The card's own name is masked to a placeholder so matches key
-// on the effect, not the archetype's proper nouns.
-
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { buildReaders, type OcgReaders } from "../client/src/main/duel/ocg.ts";
@@ -26,20 +11,17 @@ export interface CorpusEntry {
   archetype: string | null;
   desc: string;
   tokens: string[];
-  /** broad bucket for structural filtering */
   bucket: "monster" | "spell" | "trap";
   scriptPath: string;
 }
 
 const STOP = new Set("a an the of to from in on with your you can be is are this that it its as by for and or if then also each other one when while during into up".split(" "));
 
-/** Normalize effect text into ranking tokens: lowercase, mask the card's own
- *  name, drop card-specific numbers/quotes, keep effect verbs + a few bigrams. */
 export function tokenize(desc: string, name: string): string[] {
   let s = ` ${desc} `.toLowerCase();
   if (name) s = s.split(name.toLowerCase()).join(" @self ");
   s = s
-    .replace(/"[^"]*"/g, " @named ") // quoted archetype/card refs
+    .replace(/"[^"]*"/g, " @named ")
     .replace(/[0-9]+/g, " @n ")
     .replace(/[^a-z@ ]+/g, " ")
     .replace(/\s+/g, " ")
@@ -48,7 +30,7 @@ export function tokenize(desc: string, name: string): string[] {
   const out: string[] = [];
   for (let i = 0; i < words.length; i++) {
     out.push(words[i]!);
-    if (i + 1 < words.length) out.push(`${words[i]}_${words[i + 1]}`); // bigram
+    if (i + 1 < words.length) out.push(`${words[i]}_${words[i + 1]}`);
   }
   return out;
 }
@@ -63,7 +45,6 @@ export interface Corpus {
   scriptOf: (e: CorpusEntry) => string;
 }
 
-/** Load the (card → script) corpus and build a BM25 index over effect text. */
 export function loadCorpus(): Corpus {
   const readers = buildReaders([process.cwd()]);
   const db = JSON.parse(readFileSync(path.join(process.cwd(), "assets/cards/db.json"), "utf8")) as { cards: (DbCard & { desc: string })[] };
@@ -83,7 +64,6 @@ export function loadCorpus(): Corpus {
     });
   }
 
-  // BM25 statistics.
   const df = new Map<string, number>();
   let totalLen = 0;
   for (const e of entries) {
@@ -95,7 +75,6 @@ export function loadCorpus(): Corpus {
   const idf = (t: string) => Math.log(1 + (N - (df.get(t) ?? 0) + 0.5) / ((df.get(t) ?? 0) + 0.5));
   const k1 = 1.5, b = 0.75;
 
-  // Precompute term frequencies per doc.
   const tf: Array<Map<string, number>> = entries.map((e) => {
     const m = new Map<string, number>();
     for (const t of e.tokens) m.set(t, (m.get(t) ?? 0) + 1);
@@ -118,8 +97,6 @@ export function loadCorpus(): Corpus {
         s += idf(t) * (f * (k1 + 1)) / (f + k1 * (1 - b + b * dl / avgdl));
       }
       if (s <= 0) continue;
-      // Structural boosts: same broad bucket matters most; same exact type and
-      // same archetype nudge genuinely-similar cards up.
       if (e.bucket === qBucket) s *= 1.6; else s *= 0.5;
       if (e.type === query.type) s *= 1.15;
       if (query.archetype && e.archetype === query.archetype) s *= 1.25;
@@ -133,7 +110,6 @@ export function loadCorpus(): Corpus {
   return { entries, readers, retrieve, scriptOf };
 }
 
-// --- CLI: preview retrieval for a passcode ---------------------------------
 function main() {
   const [codeArg, kArg] = process.argv.slice(2);
   const code = Number(codeArg);

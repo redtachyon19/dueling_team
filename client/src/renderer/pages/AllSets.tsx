@@ -1,13 +1,6 @@
-// client/src/renderer/pages/AllSets.tsx
-//
-// Browse-all-sets page: every set with its release date and card count, newest
-// first, filterable by name/code. Clicking a row opens that set's detail view.
-// Reached from the "All sets" button in the Cards toolbar.
-
 import { useEffect, useMemo, useState } from "react";
 import type { CardData, SetData } from "@duel/shared";
 
-/** "2025-07-03" → "Jul 3, 2025"; passes through anything unparseable. */
 function formatDate(iso: string | null): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "—";
   const [y, m, d] = iso.split("-").map(Number);
@@ -36,7 +29,6 @@ export function AllSets({
     return () => window.removeEventListener("keydown", onKey);
   }, [onBack]);
 
-  // Distinct print count (set numbers we actually have) per set-code prefix.
   const printCount = useMemo(() => {
     const m = new Map<string, Set<string>>();
     for (const c of cards) {

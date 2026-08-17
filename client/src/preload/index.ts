@@ -1,20 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Deck } from "@duel/shared";
 
-// Bridge exposed to the renderer as `window.duel`. The renderer has no direct
-// file-system or network access (contextIsolation); everything goes through
-// here. The shape is declared for TypeScript in src/renderer/duel.d.ts — keep
-// the two in sync.
 contextBridge.exposeInMainWorld("duel", {
   version: "0.0.0",
   cards: {
-    /** Load the local card database (null if not imported yet). */
     load: () => ipcRenderer.invoke("cards:load"),
-    /** URL for a card's local artwork, served by the card:// protocol. */
     imageUrl: (id: number) => `card://card/${id}`,
   },
   sets: {
-    /** Load the local set database (null if not imported yet). */
     load: () => ipcRenderer.invoke("sets:load"),
   },
   decks: {
@@ -24,41 +17,30 @@ contextBridge.exposeInMainWorld("duel", {
     delete: (id: string) => ipcRenderer.invoke("decks:delete", id),
   },
   io: {
-    /** Pick a path with a native Save dialog and write text or base64 bytes. */
     save: (opts: {
       defaultName: string;
       data: string;
       encoding?: "utf8" | "base64";
       filters?: Array<{ name: string; extensions: string[] }>;
     }) => ipcRenderer.invoke("io:save", opts),
-    /** Pick a file with a native Open dialog and read it back as UTF-8 text. */
     open: (opts?: { filters?: Array<{ name: string; extensions: string[] }> }) =>
       ipcRenderer.invoke("io:open", opts),
   },
   banlists: {
     list: () => ipcRenderer.invoke("banlists:list"),
     load: (date: string) => ipcRenderer.invoke("banlists:load", date),
-    /** A single card's banlist history, as collapsed status spans. */
     history: (id: number) => ipcRenderer.invoke("banlists:history", id),
   },
   genesys: {
-    /** The Genesys point-list revisions (index.json), newest-first. */
     list: () => ipcRenderer.invoke("genesys:list"),
-    /** Load a single dated Genesys revision file. */
     load: (date: string) => ipcRenderer.invoke("genesys:load", date),
-    /** A single card's Genesys point history (revisions where it had a cost). */
     history: (id: number) => ipcRenderer.invoke("genesys:history", id),
   },
   match: {
-    /** Start a duel (ocgcore) from a saved deck; goldfish opponent by default. */
     start: (opts: unknown) => ipcRenderer.invoke("match:start", opts),
-    /** Answer the current prompt. */
     respond: (r: unknown) => ipcRenderer.invoke("match:respond", r),
-    /** Concede the duel (opponent wins). */
     surrender: () => ipcRenderer.invoke("match:surrender"),
-    /** Tear down the active duel. */
     end: () => ipcRenderer.invoke("match:end"),
-    /** Subscribe to duel updates (state + prompt + events). Returns an unsubscribe fn. */
     onUpdate: (cb: (u: unknown) => void) => {
       const listener = (_e: unknown, u: unknown) => cb(u);
       ipcRenderer.on("match:update", listener);
@@ -66,15 +48,10 @@ contextBridge.exposeInMainWorld("duel", {
     },
   },
   net: {
-    /** Host an online room (run ocgcore locally; wait for a guest). */
     host: (opts: unknown) => ipcRenderer.invoke("net:host", opts),
-    /** Join an existing room as the thin (guest) client. */
     join: (opts: unknown) => ipcRenderer.invoke("net:join", opts),
-    /** Leave / tear down the online session. */
     leave: () => ipcRenderer.invoke("net:leave"),
-    /** Networked board signals it's subscribed; pull the current board state. */
     ready: () => ipcRenderer.invoke("net:ready"),
-    /** Subscribe to connection-state changes. Returns an unsubscribe fn. */
     onStatus: (cb: (s: unknown) => void) => {
       const listener = (_e: unknown, s: unknown) => cb(s);
       ipcRenderer.on("net:status", listener);

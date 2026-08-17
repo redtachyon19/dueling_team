@@ -1,11 +1,3 @@
-// @duel/relay-server
-//
-// Thin relay for friends-only online play. It pairs two clients (a "host" and a
-// "guest") by a shared room code and forwards every game message between them
-// verbatim. It never inspects payloads, never runs game logic, and never holds
-// any Konami data — the authoritative engine (ocgcore) lives only on the host
-// client. Transport is newline-delimited JSON over plain TCP.
-
 import net from "node:net";
 import {
   DEFAULT_RELAY_PORT,
@@ -31,7 +23,6 @@ export interface RelayHandle {
   close: () => Promise<void>;
 }
 
-/** Start the relay on `port`. Resolves once it's listening. */
 export function startRelay(port = DEFAULT_RELAY_PORT, host = "0.0.0.0"): Promise<RelayHandle> {
   const rooms = new Map<string, Room>();
 
@@ -53,7 +44,6 @@ export function startRelay(port = DEFAULT_RELAY_PORT, host = "0.0.0.0"): Promise
       if (!client) return;
       const room = rooms.get(client.room);
       if (room) {
-        // Tell the peer we're gone, then free our slot.
         send(peerOf(client), { t: "peer-left" });
         if (room.host === client) delete room.host;
         if (room.guest === client) delete room.guest;
@@ -65,7 +55,7 @@ export function startRelay(port = DEFAULT_RELAY_PORT, host = "0.0.0.0"): Promise
     socket.on("data", (chunk: string) => {
       for (const msg of decode(chunk)) {
         if (msg.t === "join") {
-          if (client) continue; // already joined on this socket
+          if (client) continue;
           const role = msg.role;
           if (role !== "host" && role !== "guest") {
             socket.write(encodeNetMessage({ t: "error", message: "bad role" }));
@@ -80,15 +70,13 @@ export function startRelay(port = DEFAULT_RELAY_PORT, host = "0.0.0.0"): Promise
           room[role] = client;
           rooms.set(msg.room, room);
           send(client, { t: "joined", role });
-          // If both seats are filled, tell each side the other is here.
           if (room.host && room.guest) {
             send(room.host, { t: "peer-joined" });
             send(room.guest, { t: "peer-joined" });
           }
           continue;
         }
-        // Any non-join message is a game message: forward it opaquely to the peer.
-        if (!client) continue; // must join first
+        if (!client) continue;
         send(peerOf(client), msg);
       }
     });
@@ -118,7 +106,6 @@ export function startRelay(port = DEFAULT_RELAY_PORT, host = "0.0.0.0"): Promise
   });
 }
 
-// Run directly: `tsx relay-server/src/index.ts [port]`
 const invokedDirectly = process.argv[1] && /relay-server[\\/]src[\\/]index\.(ts|js|mts|mjs)$/.test(process.argv[1]);
 if (invokedDirectly) {
   const port = Number(process.argv[2]) || DEFAULT_RELAY_PORT;

@@ -1,11 +1,3 @@
-// client/src/renderer/pages/NumberCollection.tsx
-//
-// The "Number" collection: every "Number" Xyz monster in the database, ordered
-// by its Number. Reached from the Number Hunters duel-mode screen. Uses the
-// same shell as the card search / set / archetype views (CardGridPage), and a
-// small internal nav stack so a clicked card opens its full detail (with its
-// set / archetype links working, exactly like the card search).
-
 import { useEffect, useMemo, useState } from "react";
 import type { CardData, SetData } from "@duel/shared";
 import { CardGridPage } from "./CardGridPage.tsx";
@@ -14,12 +6,8 @@ import { CardDetail } from "./CardDetail.tsx";
 import { SetDetail } from "./SetDetail.tsx";
 import { ArchetypeDetail } from "./ArchetypeDetail.tsx";
 
-// Variant rank: a base Number ("Number 39: …") sorts ahead of its prefixed
-// variants — C(haos), F(uture), S(hining), iC — which share the same integer.
 const PREFIX_RANK: Record<string, number> = { "": 0, c: 1, f: 2, s: 3, ic: 4 };
 
-// Ordering key parsed out of a "Number …" name. Names with no parseable digits
-// (e.g. "Number XX: Utopic Dark Infinity") fall to the very end.
 function numberKey(name: string): { n: number; p: number } {
   const m = name.match(/^Number\s+(C|S|F|iC)?\s*(\d+)/i);
   if (!m) return { n: Number.POSITIVE_INFINITY, p: 99 };
@@ -45,9 +33,6 @@ export function NumberCollection({ onExit }: { onExit: () => void }): JSX.Elemen
     return m;
   }, [sets]);
 
-  // Every "Number" Xyz monster (the "Number Wall" trap and other non-Xyz
-  // "Number…" names are excluded by the frame-type check), grouped into
-  // sections and ordered by Number within each.
   const sections = useMemo<GridSection[]>(() => {
     if (!cards) return [];
 
@@ -56,11 +41,6 @@ export function NumberCollection({ onExit }: { onExit: () => void }): JSX.Elemen
       .filter((c) => c.frameType === "xyz" && /^Number\s/i.test(c.name))
       .map((card) => ({ card, key: String(card.id), sort: numberKey(card.name) }));
 
-    // Group the base (no-prefix) cards by their Number value to find duplicates.
-    // A duplicated value either has a "Numeron Gate" twin (Numbers 1–4: the
-    // OTHER twin — Infection Buzzking, Ninja Shadow Mosquito, … — is a fake
-    // "Barian" Number) or it's an alternate artwork/form (39 Utopia variants,
-    // 69 Heraldry Crests, 99 Utopia Dragonar) whose extras spill to "Other".
     const baseGroups = new Map<number, Entry[]>();
     for (const x of all) {
       if (x.sort.p === 0 && Number.isFinite(x.sort.n)) {
@@ -71,7 +51,6 @@ export function NumberCollection({ onExit }: { onExit: () => void }): JSX.Elemen
     }
     const isNumeronGate = (name: string) => /Numeron Gate/i.test(name);
 
-    // Section indices (kept in display order below).
     const NUMBER = 0, CHAOS = 1, ICHAOS = 2, BARIAN = 3, FUTURE = 4, SHINING = 5, OTHER = 6;
     const TITLES = [
       "Number Cards",
@@ -83,27 +62,22 @@ export function NumberCollection({ onExit }: { onExit: () => void }): JSX.Elemen
       "Other Numbers",
     ];
 
-    // numberKey().p: 0 = base, 1 = C, 2 = F, 3 = S, 4 = iC, 90/99 = unparseable.
     const classify = (x: Entry): number => {
       const { p, n } = x.sort;
       if (p === 1) return CHAOS;
       if (p === 4) return ICHAOS;
       if (p === 2) return FUTURE;
       if (p === 3) return SHINING;
-      if (p !== 0) return OTHER; // "Number XX", unknown prefixes — unparseable
-      // Base (no-prefix) Number:
+      if (p !== 0) return OTHER;
       const group = baseGroups.get(n)!;
       if (group.length > 1) {
         if (group.some((g) => isNumeronGate(g.card.name))) {
-          // The real Numeron Gate stays a Number Card; its twin is the Barian.
           return isNumeronGate(x.card.name) ? NUMBER : BARIAN;
         }
-        // Other duplicates: keep the canonical (shortest-named base form) in
-        // Number Cards; the rest are alternates → Other Numbers.
         const canonical = group.reduce((a, b) => (b.card.name.length < a.card.name.length ? b : a));
         return x.card.id === canonical.card.id ? NUMBER : OTHER;
       }
-      return NUMBER; // unique base number
+      return NUMBER;
     };
 
     const buckets: Entry[][] = TITLES.map(() => []);
@@ -122,7 +96,6 @@ export function NumberCollection({ onExit }: { onExit: () => void }): JSX.Elemen
 
   const total = useMemo(() => sections.reduce((n, s) => n + s.cards.length, 0), [sections]);
 
-  // Internal nav stack (card → set → archetype → …), mirroring the card search.
   type View =
     | { kind: "card"; card: CardData }
     | { kind: "set"; code: string }

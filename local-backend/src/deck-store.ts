@@ -1,10 +1,3 @@
-// @duel/local-backend — deck persistence
-//
-// Decks are stored as one JSON file per deck under a caller-provided directory
-// (the Electron main process passes app.getPath("userData")/decks). Pure file
-// I/O over Node fs; no network, no Electron imports, so it can be unit-tested
-// in isolation.
-
 import { mkdir, readdir, readFile, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Deck, DeckSummary } from "@duel/shared";
@@ -27,7 +20,6 @@ function summarize(d: Deck): DeckSummary {
   };
 }
 
-/** Reject anything that could escape the decks directory. */
 function safeId(id: string): string {
   if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`unsafe deck id: ${id}`);
   return id;
@@ -42,7 +34,6 @@ export async function listDecks(dir: string): Promise<DeckSummary[]> {
       const deck = JSON.parse(await readFile(join(dir, f), "utf8")) as Deck;
       out.push(summarize(deck));
     } catch {
-      // Skip unreadable/corrupt files rather than failing the whole list.
     }
   }
   out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

@@ -1,29 +1,15 @@
-// client/src/renderer/cards/search.ts
-//
-// Pure, dependency-free card search helpers. No React, no I/O — just functions
-// over an in-memory CardData[]. This is a UI/data-query concern (not game
-// rules), so it lives in the renderer rather than @duel/engine, and is kept
-// pure so it can be unit-tested without Electron.
-
 import type { CardData, CardQuery, CardSort, CardSupertype } from "@duel/shared";
 
-/** Broad category of a card, derived from its frame. */
 export function supertypeOf(card: CardData): CardSupertype {
   if (card.frameType === "spell") return "Spell";
   if (card.frameType === "trap") return "Trap";
   return "Monster";
 }
 
-/** Base frame with any "_pendulum" suffix stripped ("effect_pendulum" → "effect"). */
 function baseFrame(frameType: string): string {
   return frameType.replace(/_pendulum$/, "");
 }
 
-/**
- * Whether a card's frame matches any selected Frame chip. Base-frame chips
- * ("effect", "fusion", …) match the plain frame and its Pendulum variant; the
- * special "pendulum" chip matches any Pendulum card. OR semantics within the set.
- */
 export function frameMatchesAny(frameType: string, selected: readonly string[]): boolean {
   const isPendulum = frameType.includes("pendulum");
   const base = baseFrame(frameType);
@@ -37,13 +23,8 @@ export function frameMatchesAny(frameType: string, selected: readonly string[]):
   return false;
 }
 
-/** Space-joined, lowercased set codes for a card, e.g. "duad-en068 lob-en001". */
 const setCodesOf = (c: CardData): string => c.sets.map((s) => s.code).join(" ").toLowerCase();
 
-/** Apply a query to a card list. Empty/absent fields are ignored. The free-text
- *  query matches a card's name, set codes (set number), passcode, OR effect
- *  text. (Reference impl; the app uses the indexed `runQuery`, which also ranks
- *  these.) */
 export function filterCards(cards: readonly CardData[], q: CardQuery): CardData[] {
   const text = q.text?.trim().toLowerCase();
   const { attribute, race, archetype, frameType, supertype, levelMin, levelMax,
@@ -75,11 +56,9 @@ export function filterCards(cards: readonly CardData[], q: CardQuery): CardData[
     return true;
   });
 
-  // Filter parity with runQuery: when an explicit sort is requested, apply it.
   return q.sort && q.sort !== "relevance" ? sortCards(filtered, q.sort) : filtered;
 }
 
-/** Push nullish values to the end regardless of direction; else compare by `dir`. */
 function cmpNum(a: number | null, b: number | null, dir: 1 | -1): number {
   if (a == null && b == null) return 0;
   if (a == null) return 1;
@@ -93,14 +72,12 @@ function cmpStr(a: string | null, b: string | null, dir: 1 | -1): number {
   return a.localeCompare(b) * dir;
 }
 
-/** Type ordering for the "type" sort: Monsters first, then Spells, then Traps. */
 function typeRank(c: CardData): number {
   if (c.frameType === "spell") return 1;
   if (c.frameType === "trap") return 2;
   return 0;
 }
 
-/** Comparator for an explicit (non-relevance) sort key. */
 function sortComparator(sort: CardSort): (a: CardData, b: CardData) => number {
   switch (sort) {
     case "name": return (a, b) => a.name.localeCompare(b.name);
@@ -113,11 +90,10 @@ function sortComparator(sort: CardSort): (a: CardData, b: CardData) => number {
     case "type": return (a, b) =>
       typeRank(a) - typeRank(b) || a.frameType.localeCompare(b.frameType) || a.name.localeCompare(b.name);
     case "newest": return (a, b) => cmpStr(a.tcgDate, b.tcgDate, -1);
-    default: return () => 0; // "relevance" → no reordering
+    default: return () => 0;
   }
 }
 
-/** Stable sort a card list by an explicit sort key (original order breaks ties). */
 export function sortCards(cards: readonly CardData[], sort: CardSort): CardData[] {
   const cmp = sortComparator(sort);
   return cards
@@ -126,18 +102,12 @@ export function sortCards(cards: readonly CardData[], sort: CardSort): CardData[
     .map((m) => m.card);
 }
 
-/**
- * A card with its searchable text pre-lowercased and its supertype precomputed.
- * Building this once (when the DB loads) avoids re-lowercasing ~14k name+desc
- * strings on every keystroke — the difference between a sluggish and an instant
- * search.
- */
 export interface PreparedCard {
   card: CardData;
-  name: string; // lowercased name
-  desc: string; // lowercased card text
-  setCodes: string; // lowercased, space-joined set codes (the "set number")
-  passcode: string; // the card's passcode as a string
+  name: string;
+  desc: string;
+  setCodes: string;
+  passcode: string;
   supertype: CardSupertype;
 }
 
@@ -152,19 +122,6 @@ export function prepareCards(cards: readonly CardData[]): PreparedCard[] {
   }));
 }
 
-/**
- * Filter a prepared (indexed) card list.
- *
- * When a free-text query is present, results are RANKED by which field matched,
- * in this priority order (title first, then set number, then password):
- *   0 — name starts with the query   (best)
- *   1 — name contains the query
- *   2 — a set code (set number) matches
- *   3 — the passcode (password) starts with the query
- *   4 — only the effect text matches (worst)
- * Within a rank, original DB order is preserved (the sort is stable). With no
- * text query, order is unchanged.
- */
 export function runQuery(prepared: readonly PreparedCard[], q: CardQuery): CardData[] {
   const text = q.text?.trim().toLowerCase();
   const { attribute, race, archetype, frameType, supertype, levelMin, levelMax,
@@ -203,32 +160,21 @@ export function runQuery(prepared: readonly PreparedCard[], q: CardQuery): CardD
     matches.push({ card: c, rank });
   }
 
-  // An explicit sort overrides relevance ranking, with or without a text query.
   if (sort && sort !== "relevance") return sortCards(matches.map((m) => m.card), sort);
 
-  // No text query → no ranking needed; preserve DB order.
   if (!text) return matches.map((m) => m.card);
 
-  // Stable sort by rank: titles first, then effect-text-only matches.
   return matches
     .map((m, i) => ({ ...m, i }))
     .sort((a, b) => a.rank - b.rank || a.i - b.i)
     .map((m) => m.card);
 }
 
-/** A single artwork of a card — one card can have several alternate arts. */
 export interface ArtworkTile {
   card: CardData;
   imageId: number;
 }
 
-/**
- * Expand a card list into one entry per DISTINCT artwork ID, preserving order:
- * each card contributes each of its `images[]` once, so the grid shows every
- * alternate art as its own tile. The dedup matters because upstream
- * (YGOPRODeck) sometimes lists the same artwork passcode multiple times in a
- * card's images — without it, a 2-art card renders 4+ duplicate tiles.
- */
 export function expandArtworks(cards: readonly CardData[]): ArtworkTile[] {
   const out: ArtworkTile[] = [];
   for (const card of cards) {
@@ -250,10 +196,6 @@ export interface Facets {
   archetypes: string[];
 }
 
-/**
- * Collect the distinct, sorted values present in the loaded card set, so the
- * filter dropdowns always match the actual data instead of a hardcoded list.
- */
 export function deriveFacets(cards: readonly CardData[]): Facets {
   const attributes = new Set<string>();
   const races = new Set<string>();

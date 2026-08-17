@@ -1,23 +1,15 @@
-// client/src/renderer/pages/SetDetail.tsx
-//
-// Full-page view for a single set: its details (name, code, release date, card
-// count) and every card in it, via the shared CardGridPage shell.
-
 import { useMemo } from "react";
 import type { CardData, SetData } from "@duel/shared";
 import { CardGridPage } from "./CardGridPage.tsx";
 import type { GridCard } from "./CardGridPage.tsx";
 
-/** Set-code prefix, e.g. "DUAD-EN057" → "DUAD". */
 const prefixOf = (code: string): string => code.split("-")[0] ?? code;
 
-/** Trailing collector number in a print code, e.g. "DUAD-EN057" → 57. */
 const collectorNum = (code: string): number => {
   const m = code.match(/(\d+)(?!.*\d)/);
   return m ? Number(m[1]) : 0;
 };
 
-/** "2025-07-03" → "Jul 3, 2025"; passes through anything unparseable. */
 function formatDate(iso: string | null | undefined): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso ?? "—";
   const [y, m, d] = iso.split("-").map(Number);
@@ -38,8 +30,6 @@ export function SetDetail({
   onOpenCard: (c: CardData) => void;
   onBack: () => void;
 }): JSX.Element {
-  // Every card printed in this set, with its print code, ordered by collector
-  // number. A card can have several prints; we match the one for this set.
   const inSet = useMemo<GridCard[]>(() => {
     const out: { card: CardData; code: string }[] = [];
     for (const c of cards) {

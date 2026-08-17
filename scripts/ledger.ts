@@ -1,52 +1,18 @@
-// scripts/ledger.ts
-//
-// BUILD-TIME ONLY. Shared by the importer scripts; never imported by the app.
-//
-// THE CARD LEDGER — engine/cards/ledger.json — is the single source of truth for
-// which passcodes are in the game and which are blacklisted, and why.
-//
-// Before this existed, every import re-derived those decisions from live
-// upstream state (Yugipedia's OCG-only query, .cdb filenames, TCG release
-// dates). That meant the same command could silently produce a different card
-// pool on a different day: one flaky Yugipedia response and a legitimate TCG
-// card vanishes from the app with nothing to point at. The ledger freezes each
-// decision the first time it is made, so the pool only changes when the ledger
-// changes — and that change shows up as a reviewable git diff.
-//
-// RECONCILIATION RULES (see `reconcile`):
-//   1. Unknown passcode  → take the importer's derived decision, record it,
-//                          report it as new.
-//   2. Known passcode    → THE LEDGER WINS. Upstream cannot silently flip a
-//                          card; a disagreement is reported as drift.
-//   3. `locked: true`    → hand-pinned. Never re-derived, drift never applied.
-//   4. Temporal reasons  → re-derived every run (see REEVALUATE). "unreleased"
-//                          MUST be, or a card would stay excluded forever once
-//                          its set finally ships.
-//
-// Each entry records the `origin` importer that owns it, so `import-cards` and
-// `import-ocg` can each rewrite their own decisions without clobbering the
-// other's half of the file.
-
 import { PATHS, readJson, writeJson } from "./_lib.ts";
 
-/** Which importer owns a decision. An importer only rewrites its own entries. */
 export type LedgerOrigin = "cards" | "ocgcore";
 
-/** Why a passcode is excluded. `tcg` is the reason an entry is *included*. */
 export type LedgerReason =
-  | "tcg" // included: a released TCG card
-  | "ocg-only" // OCG/Master-Duel exclusive (Yugipedia Medium::OCG-only)
-  | "skill-card" // Speed Duel Skill Card
-  | "unreleased" // announced but not yet on shelves — no official English text
-  | "manual" // hand-curated removal (see MANUAL_EXCLUDE in import-cards.ts)
-  | "rush-duel" // Rush Duel — a different game
-  | "anime-unofficial" // anime / manga / video-game-only
-  | "goat" // Goat-format alternate entry
-  | "prerelease"; // upstream prerelease cdb
+  | "tcg"
+  | "ocg-only"
+  | "skill-card"
+  | "unreleased"
+  | "manual"
+  | "rush-duel"
+  | "anime-unofficial"
+  | "goat"
+  | "prerelease";
 
-/** Reasons that describe a moment in time, not a permanent decision, and so are
- *  re-derived on every import. Without this an "unreleased" card would stay
- *  excluded forever once its set actually shipped. */
 const REEVALUATE = new Set<LedgerReason>(["unreleased"]);
 
 export const REASON_LEGEND: Record<LedgerReason, string> = {
@@ -64,10 +30,8 @@ export const REASON_LEGEND: Record<LedgerReason, string> = {
 export interface LedgerEntry {
   name?: string;
   reason: LedgerReason;
-  /** Where the decision came from: a set code, a .cdb filename, a rule name. */
   source?: string;
   origin: LedgerOrigin;
-  /** Hand-pinned: never re-derived, and drift is reported but never applied. */
   locked?: boolean;
 }
 
@@ -80,7 +44,6 @@ export interface Ledger {
   exclude: Record<string, LedgerEntry>;
 }
 
-/** One importer's proposed decision for a single passcode. */
 export interface Decision {
   code: number;
   name?: string;
@@ -89,19 +52,13 @@ export interface Decision {
   source?: string;
 }
 
-/** Reported rows carry whatever name we have, which may be nothing. */
 type Named = { code: number; name?: string | undefined };
 
 export interface ReconcileResult {
   added: Array<Named & { status: "include" | "exclude"; reason: LedgerReason }>;
-  /** Ledger and importer disagree; the ledger's decision was kept. */
   drift: Array<Named & { was: LedgerReason; now: LedgerReason; applied: boolean }>;
-  /** Passcodes the ledger owned for this origin that upstream no longer returns. */
   vanished: Array<Named & { status: "include" | "exclude" }>;
   held: Array<Named & { status: "include" | "exclude"; reason: LedgerReason }>;
-  /** Same verdict, different reason — e.g. a card BabelCDB files under
-   *  "prerelease" that YGOPRODeck already told us is "ocg-only". The card is out
-   *  either way, so this is trivia: counted, not listed. */
   reasonOnly: number;
 }
 
@@ -120,12 +77,6 @@ const entryOf = (l: Ledger, code: number): { entry: LedgerEntry; status: "includ
   return null;
 };
 
-/**
- * Fold one importer's decisions into the ledger, applying the rules above.
- *
- * `strict` holds brand-new passcodes out of the ledger entirely (reported as
- * `held`) so nothing reaches the app until it is accepted by hand.
- */
 export function reconcile(
   ledger: Ledger,
   decisions: readonly Decision[],
@@ -140,7 +91,6 @@ export function reconcile(
     seen.add(k);
     const current = entryOf(ledger, d.code);
 
-    // 1. New passcode.
     if (!current) {
       if (strict) {
         res.held.push({ code: d.code, name: d.name, status: d.status, reason: d.reason });
@@ -151,21 +101,16 @@ export function reconcile(
       continue;
     }
 
-    // Refresh the display name even when the decision itself is unchanged.
     if (d.name) current.entry.name = d.name;
 
     if (current.status === d.status && current.entry.reason === d.reason) continue;
 
-    // Same verdict, different label. Only the reason moves, and only when the
-    // ledger has no opinion worth keeping (a temporal reason). Never noisy.
     if (current.status === d.status) {
       if (!current.entry.locked && REEVALUATE.has(current.entry.reason)) current.entry.reason = d.reason;
       res.reasonOnly++;
       continue;
     }
 
-    // 3/4. Locked entries never move. Temporal reasons are re-derived; anything
-    // else keeps the ledger's decision and is reported as drift.
     const temporal = REEVALUATE.has(current.entry.reason) || REEVALUATE.has(d.reason);
     const applied = !current.entry.locked && temporal;
     if (applied) {
@@ -181,9 +126,6 @@ export function reconcile(
     });
   }
 
-  // Passcodes this origin owns that upstream stopped returning. Reported, never
-  // auto-removed — a card silently disappearing upstream is exactly the failure
-  // this ledger exists to make visible.
   for (const [k, e] of [
     ...Object.entries(ledger.include).map(([k, e]) => [k, e, "include"] as const),
     ...Object.entries(ledger.exclude).map(([k, e]) => [k, e, "exclude"] as const),
@@ -208,7 +150,6 @@ function remove(ledger: Ledger, code: number): void {
   delete ledger.exclude[String(code)];
 }
 
-/** Every passcode currently marked for inclusion. */
 export function includedCodes(ledger: Ledger): Set<number> {
   return new Set(Object.keys(ledger.include).map(Number));
 }
@@ -230,7 +171,6 @@ export async function writeLedger(ledger: Ledger): Promise<void> {
   } satisfies Ledger);
 }
 
-/** Console summary shared by both importers. */
 export function reportReconcile(res: ReconcileResult, ledger: Ledger, label: string): void {
   const show = 8;
   if (res.added.length) {

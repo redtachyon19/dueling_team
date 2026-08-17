@@ -16,13 +16,9 @@ import type {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// App display name (window title, macOS menu bar, dock).
 app.setName("Dueling Team");
 
-/** The app icon (client/build/icon.png), or null if it can't be found. */
 function appIcon(): Electron.NativeImage | null {
-  // Dev: main runs from client/out/main → client/build. Packaged builds fall
-  // back to the app path. First existing candidate wins.
   const candidates = [
     path.join(__dirname, "../../build/icon.png"),
     path.join(app.getAppPath(), "build/icon.png"),
@@ -36,15 +32,10 @@ function appIcon(): Electron.NativeImage | null {
   return null;
 }
 
-/** Where saved decks live: <userData>/decks (created on first write). */
 function decksDir(): string {
   return path.join(app.getPath("userData"), "decks");
 }
 
-// Custom scheme used to serve local card art to the renderer
-// (card://card/<passcode>). Must be registered before the app is ready.
-// `secure`/`standard` let it behave like https for fetch/<img>; CSP still
-// applies, so index.html lists `card:` under img-src.
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "card",
@@ -52,25 +43,14 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
-/**
- * Locate the local asset folder by walking up from this file. In dev, main
- * runs from client/out/main → repo-root/assets. The app never fetches over the
- * network; it only reads these local files.
- */
 function findAssetsDir(): string | null {
   return findRepoDir("assets");
 }
 
-/**
- * The banlist and Genesys archives live under engine/, not assets/ — they are
- * append-only records upstream can't re-serve, so they are tracked rather than
- * treated as a re-downloadable asset.
- */
 function findEngineDir(): string | null {
   return findRepoDir("engine");
 }
 
-/** Walk up from this file (dev) or the app path (packaged) to a repo folder. */
 function findRepoDir(name: string): string | null {
   const starts = [__dirname, app.getAppPath()];
   for (const start of starts) {
@@ -90,7 +70,6 @@ let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): void {
   const icon = appIcon();
-  // macOS shows the icon in the dock rather than the window frame.
   if (icon && process.platform === "darwin") app.dock?.setIcon(icon);
   const win = new BrowserWindow({
     width: 1280,
@@ -113,8 +92,6 @@ function createWindow(): void {
     if (mainWindow === win) mainWindow = null;
   });
 
-  // electron-vite injects this env var with the dev server URL.
-  // In production, load the built renderer from disk.
   if (process.env["ELECTRON_RENDERER_URL"]) {
     void win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
   } else {
@@ -122,10 +99,6 @@ function createWindow(): void {
   }
 }
 
-// --- IPC: load the local card database ------------------------------------
-// Returns the card array from engine/cards/db.json, or null when the
-// database hasn't been imported yet (run `pnpm import:cards`). The renderer
-// filters in-memory; the DB is read once per request.
 ipcMain.handle("cards:load", async () => {
   const engine = findEngineDir();
   if (!engine) return null;
@@ -138,9 +111,6 @@ ipcMain.handle("cards:load", async () => {
   }
 });
 
-// --- IPC: load the local set database -------------------------------------
-// Returns the set array from engine/sets/db.json (used to resolve a
-// card's set codes to names/release dates), or null if not imported yet.
 ipcMain.handle("sets:load", async () => {
   const engine = findEngineDir();
   if (!engine) return null;
@@ -152,16 +122,11 @@ ipcMain.handle("sets:load", async () => {
   }
 });
 
-// --- IPC: deck persistence (stored under <userData>/decks) -----------------
 ipcMain.handle("decks:list", () => listDecks(decksDir()));
 ipcMain.handle("decks:load", (_e, id: string) => loadDeck(decksDir(), id));
 ipcMain.handle("decks:save", (_e, deck: Deck) => saveDeck(decksDir(), deck));
 ipcMain.handle("decks:delete", (_e, id: string) => deleteDeck(decksDir(), id));
 
-// --- IPC: file import/export via native dialogs ----------------------------
-// Used by the deck editor's Import / Export. The renderer builds the file
-// contents (YDK / TXT / JSON text, or base64 PNG bytes); these just pick a
-// path and read/write it. Kept generic rather than deck-specific.
 interface FileFilter {
   name: string;
   extensions: string[];
@@ -202,8 +167,6 @@ ipcMain.handle("io:open", async (_e, opts?: { filters?: FileFilter[] }) => {
   }
 });
 
-// --- IPC: banlists (read-only, from engine/banlists) -----------------
-// list → the index.json revisions array; load → a single dated revision file.
 ipcMain.handle("banlists:list", async () => {
   const engine = findEngineDir();
   if (!engine) return [];
@@ -224,8 +187,6 @@ ipcMain.handle("banlists:load", async (_e, date: string) => {
   }
 });
 
-// --- IPC: genesys point lists (read-only, from engine/genesys) -------------
-// list → the index.json revisions array; load → a single dated revision file.
 ipcMain.handle("genesys:list", async () => {
   const engine = findEngineDir();
   if (!engine) return [];
@@ -246,10 +207,6 @@ ipcMain.handle("genesys:load", async (_e, date: string) => {
   }
 });
 
-// --- IPC: a single card's banlist + genesys history -----------------------
-// Computed here (not in the renderer) so we read the ~80 banlist / ~7 genesys
-// files once and cache the parsed revisions for the app session, instead of
-// shipping all of them across the bridge or re-reading per card.
 async function readAllRevisions(sub: "banlists" | "genesys"): Promise<any[]> {
   const engine = findEngineDir();
   if (!engine) return [];
@@ -265,10 +222,9 @@ async function readAllRevisions(sub: "banlists" | "genesys"): Promise<any[]> {
     try {
       out.push(JSON.parse(await readFile(path.join(engine, sub, m.file), "utf8")));
     } catch {
-      // skip unreadable revision
     }
   }
-  return out.sort((a, b) => String(a.date).localeCompare(String(b.date))); // chronological
+  return out.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
 
 let banlistRevs: any[] | null = null;
@@ -278,7 +234,6 @@ ipcMain.handle("banlists:history", async (_e, id: number) => {
   const statusAt = (rev: any): string =>
     has(rev.forbidden) ? "Forbidden" : has(rev.limited) ? "Limited" : has(rev.semiLimited) ? "Semi-Limited" : "Unlimited";
 
-  // Collapse consecutive same-status revisions into spans.
   const spans: Array<{ status: string; from: string; to: string }> = [];
   for (const rev of banlistRevs) {
     const status = statusAt(rev);
@@ -295,7 +250,6 @@ ipcMain.handle("banlists:history", async (_e, id: number) => {
 let genesysRevs: any[] | null = null;
 ipcMain.handle("genesys:history", async (_e, id: number) => {
   if (!genesysRevs) genesysRevs = await readAllRevisions("genesys");
-  // Points at each revision (0 = not listed), then the change events between them.
   const seq = genesysRevs.map((rev) => {
     const hit = Array.isArray(rev.cards) ? rev.cards.find((c: any) => c.id === id) : null;
     return { date: rev.date as string, points: (hit?.points as number) ?? 0 };
@@ -309,13 +263,7 @@ ipcMain.handle("genesys:history", async (_e, id: number) => {
   return { current, changes };
 });
 
-// --- IPC: duel (ocgcore session in the main process) ----------------------
-// One active session at a time. Updates (state + prompt + events) are pushed to
-// the renderer over "match:update"; the renderer answers prompts via "match:respond".
 let duelSession: DuelSession | null = null;
-// Seed the duel RNG from OS entropy so every app launch (and each duel within
-// it, advanced by the LCG below) deals a freshly shuffled deck. Previously this
-// was a fixed constant, so the first duel after every launch was identical.
 let duelSeed = randomBytes(8).readBigUInt64LE() | 1n;
 
 ipcMain.handle("match:start", async (_e, opts: DuelStartOptions): Promise<DuelStartResult> => {
@@ -325,9 +273,6 @@ ipcMain.handle("match:start", async (_e, opts: DuelStartOptions): Promise<DuelSt
   const deck = await loadDeck(decksDir(), opts.deckId);
   if (!deck) return { ok: false, error: "deck not found" };
 
-  // Optional custom deck for the AI opponent. If one was explicitly requested but
-  // can't be loaded (deleted/corrupt id), fail loudly rather than silently
-  // dueling the built-in deck — mirroring the player-deck handling above.
   const aiDeck = opts.aiDeckId ? await loadDeck(decksDir(), opts.aiDeckId) : null;
   if (opts.aiDeckId && !aiDeck) return { ok: false, error: "AI deck not found" };
 
@@ -345,14 +290,13 @@ ipcMain.handle("match:start", async (_e, opts: DuelStartOptions): Promise<DuelSt
 });
 
 ipcMain.handle("match:respond", (_e, r: DuelResponse) => {
-  // As a guest we have no local session; forward the answer to the host.
   if (netRole === "guest") netClient?.send({ t: "response", response: r });
   else duelSession?.respond(r);
 });
 
 ipcMain.handle("match:surrender", () => {
   if (netRole === "guest") netClient?.send({ t: "surrender" });
-  else duelSession?.surrender(); // host: surrender() also notifies the guest
+  else duelSession?.surrender();
 });
 
 ipcMain.handle("match:end", () => {
@@ -360,23 +304,14 @@ ipcMain.handle("match:end", () => {
   else { duelSession?.end(); duelSession = null; }
 });
 
-// --- online play (friends-only relay) --------------------------------------
 let netClient: NetClient | null = null;
 let netRole: "host" | "guest" | null = null;
-// An in-process relay the host spins up for local play, so online hosting works
-// without a separately-launched relay. Started lazily on the first local host,
-// then kept alive and reused for the app's lifetime; closed on quit.
 let embeddedRelay: RelayHandle | null = null;
 
 const netStatus = (s: NetStatus) => mainWindow?.webContents.send("net:status", s);
-// Remember the latest board update. A networked board only mounts AFTER the
-// "playing" status flips the view, by which point the opening update was already
-// sent (and missed); it calls net:ready once subscribed to pull the current state.
 let lastUpdate: DuelUpdate | null = null;
 const matchUpdate = (u: DuelUpdate) => { lastUpdate = u; mainWindow?.webContents.send("match:update", u); };
 
-/** A user-supplied seed makes the shuffle reproducible; otherwise advance the
- *  per-launch LCG so each duel deals a fresh deck. */
 function nextSeed(seedStr?: string): bigint {
   if (seedStr != null && /^\d+$/.test(seedStr.trim())) {
     let s = BigInt(seedStr.trim()) & 0xffffffffffffffffn;
@@ -396,29 +331,20 @@ function teardownNet(): void {
   lastUpdate = null;
 }
 
-/** True when the relay address points at this machine, so the host can run an
- *  in-process relay instead of needing a separately-launched one. */
 function isLocalRelay(addr: string): boolean {
   const a = addr.trim();
   return a === "" || /^(127\.0\.0\.1|localhost|::1|0\.0\.0\.0)$/i.test(a);
 }
 
-/** Ensure a relay is listening when hosting locally. Starts an in-process relay
- *  the first time (bound to 0.0.0.0 so remote guests can still reach this
- *  machine), then reuses it. If the port is already taken — e.g. a manually-run
- *  relay — we leave that one in place and just connect to it. */
 async function ensureEmbeddedRelay(addr: string, port: number): Promise<void> {
   if (embeddedRelay || !isLocalRelay(addr)) return;
   try {
     embeddedRelay = await startRelay(port);
   } catch {
-    // EADDRINUSE (a relay is already up) or any bind failure: fall through and
-    // let connect() succeed against the existing relay or report a clear error.
     embeddedRelay = null;
   }
 }
 
-/** Turn a raw socket error into actionable guidance for the lobby. */
 function relayError(e: unknown, host: string, port: number): string {
   const msg = e instanceof Error ? e.message : String(e);
   if (/ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ENOTFOUND/.test(msg)) {
@@ -445,11 +371,6 @@ ipcMain.handle("net:host", async (_e, opts: NetHostOptions): Promise<NetResult> 
         const transport = { deck: m.deck, sendToGuest: (u: DuelUpdate) => client.send({ t: "update", update: u }) };
         const session = new DuelSession(matchUpdate, startDirs);
         duelSession = session;
-        // Await the result BEFORE telling the guest whether it started — the
-        // guest's deck can fail engine validation, and a premature ok:true would
-        // strand the guest on a board that never starts. The opening update
-        // emitted during start() is retained in lastUpdate and pulled by the
-        // board via net:ready once it mounts.
         const res = await session.start({ main: deck.main, extra: deck.extra }, nextSeed(opts.seed), true, format, "remote", "normal", null, transport);
         client.send({ t: "start", ok: res.ok, error: res.error, format });
         if (res.ok) {
@@ -517,14 +438,11 @@ ipcMain.handle("net:leave", () => {
   netStatus({ phase: "ended" });
 });
 
-// A networked board, once mounted and subscribed, pulls the current board state
-// (it missed the opening update that was sent before it existed).
 ipcMain.handle("net:ready", () => {
   if (lastUpdate) mainWindow?.webContents.send("match:update", lastUpdate);
 });
 
 app.whenReady().then(() => {
-  // --- card://card/<passcode> → local card art (image/jpeg) -------------
   protocol.handle("card", async (request) => {
     const assets = findAssetsDir();
     let id = "";
@@ -545,13 +463,10 @@ app.whenReady().then(() => {
         status: 200,
         headers: {
           "Content-Type": "image/jpeg",
-          // Allow the renderer to draw card art onto a <canvas> and read it
-          // back (deck PNG export) without tainting the canvas.
           "Access-Control-Allow-Origin": "*",
         },
       });
     } catch {
-      // Art not downloaded yet (run `pnpm build:images`); renderer shows a placeholder.
       return new Response(null, { status: 404 });
     }
   });

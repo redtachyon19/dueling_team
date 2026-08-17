@@ -1,7 +1,3 @@
-// The first real engine pass: a vanilla-monster duel reduced from the event
-// stream. ocgcore is the rules authority at runtime; here we assert the pure
-// projection (life points / phases / turns / win) the engine owns.
-
 import { describe, it, expect } from "vitest";
 import {
   initialDuelState,
@@ -37,7 +33,6 @@ describe("position decoding", () => {
 describe("vanilla duel reducer", () => {
   it("tracks life points through battle damage", () => {
     let s = initialDuelState(8000, 8000);
-    // Turn 1: player 0 attacks directly with Battle Ox (1700).
     s = reduceEvents(s, [
       { kind: "turn", turn: 1, player: 0 },
       { kind: "phase", phase: "main1" },
@@ -56,7 +51,7 @@ describe("vanilla duel reducer", () => {
   it("clamps life points at zero and records the winner", () => {
     let s = initialDuelState(1000, 1000);
     s = reduceEvent(s, { kind: "damage", player: 1, amount: 1700 });
-    expect(s.players[1].lp).toBe(0); // clamped, not negative
+    expect(s.players[1].lp).toBe(0);
     s = reduceEvent(s, { kind: "win", player: 0 });
     expect(s.over).toBe(true);
     expect(s.winner).toBe(0);
@@ -73,7 +68,7 @@ describe("vanilla duel reducer", () => {
   it("does not mutate the input state", () => {
     const s0 = initialDuelState(8000, 8000);
     const s1 = reduceEvent(s0, { kind: "damage", player: 1, amount: 1000 });
-    expect(s0.players[1].lp).toBe(8000); // original untouched
+    expect(s0.players[1].lp).toBe(8000);
     expect(s1.players[1].lp).toBe(7000);
     expect(s1).not.toBe(s0);
   });

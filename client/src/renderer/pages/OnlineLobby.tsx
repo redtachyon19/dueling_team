@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { DeckSummary, DuelFormat, NetStatus } from "@duel/shared";
 
-/** Friends-only online lobby. Host a room (this client runs the duel) or join
- *  one by code. Both connect to a shared relay (default localhost — run the
- *  relay yourself and share its address with your friend). When the duel starts,
- *  `onPlay` hands off to the networked board. */
 export function OnlineLobby({ onBack, onPlay }: { onBack: () => void; onPlay: (deckId: string, format: DuelFormat) => void }): JSX.Element {
   const [tab, setTab] = useState<"host" | "join">("host");
   const [decks, setDecks] = useState<DeckSummary[] | null>(null);
@@ -19,8 +15,6 @@ export function OnlineLobby({ onBack, onPlay }: { onBack: () => void; onPlay: (d
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Refs so the status subscription always sees the latest values without
-  // re-subscribing, and so unmount-on-play doesn't tear down the new session.
   const deckRef = useRef("");
   const formatRef = useRef<DuelFormat>("advanced");
   const handingOff = useRef(false);
@@ -42,8 +36,6 @@ export function OnlineLobby({ onBack, onPlay }: { onBack: () => void; onPlay: (d
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Leaving the lobby (back / unmount) tears down any pending connection —
-  // unless we're handing off to the board, which owns the session from here.
   useEffect(() => () => { if (!handingOff.current) window.duel.net.leave().catch(() => {}); }, []);
 
   const portNum = () => Number(relayPort) || 41923;
@@ -71,7 +63,7 @@ export function OnlineLobby({ onBack, onPlay }: { onBack: () => void; onPlay: (d
   const copyRoom = async () => {
     if (!roomCode) return;
     try { await navigator.clipboard.writeText(roomCode); setCopied(true); setTimeout(() => setCopied(false), 1500); }
-    catch { /* clipboard unavailable — code is on screen to read */ }
+    catch { }
   };
 
   return (

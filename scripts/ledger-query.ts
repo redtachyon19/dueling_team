@@ -1,15 +1,3 @@
-// scripts/ledger-query.ts
-//
-// BUILD-TIME ONLY. Read-only view over engine/cards/ledger.json.
-//
-//   pnpm ledger                    # summary: totals by reason
-//   pnpm ledger 91025875           # why is this passcode in / out?
-//   pnpm ledger "Blue-Eyes"        # by name (substring, case-insensitive)
-//   pnpm ledger --reason=rush-duel # everything excluded for one reason
-//   pnpm ledger --reason=rush-duel --list   # …and print all of them
-//
-// Answers "why isn't this card in the game?" without grepping a 2 MB JSON file.
-
 import { readLedger, REASON_LEGEND, type LedgerEntry } from "./ledger.ts";
 import { PATHS, hasFlag } from "./_lib.ts";
 
@@ -42,7 +30,6 @@ async function main() {
   const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
   const reasonFlag = process.argv.find((a) => a.startsWith("--reason="))?.slice("--reason=".length);
 
-  // --reason=<x> — everything filed under one reason.
   if (reasonFlag) {
     const hits = rows.filter((r) => r.entry.reason === reasonFlag);
     console.log(`${hits.length.toLocaleString()} passcode(s) with reason "${reasonFlag}" — ${REASON_LEGEND[reasonFlag as keyof typeof REASON_LEGEND] ?? "unknown reason"}`);
@@ -52,7 +39,6 @@ async function main() {
     return;
   }
 
-  // A passcode or a name substring.
   if (args.length) {
     const q = args.join(" ");
     const byCode = rows.filter((r) => r.code === q);
@@ -76,7 +62,6 @@ async function main() {
     return;
   }
 
-  // Default: the summary.
   const byReason = new Map<string, number>();
   for (const r of rows) byReason.set(r.entry.reason, (byReason.get(r.entry.reason) ?? 0) + 1);
   const inc = Object.keys(ledger.include).length;

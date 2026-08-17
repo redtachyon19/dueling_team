@@ -3,7 +3,6 @@ import { OcgMessageType, SelectIdleCMDAction, SelectBattleCMDAction, OcgPosition
 import { aiDecide, evaluate, posture, features, setEvalWeights, getEvalWeights, applyDisruptionToSelf, survivalScore, DEFAULT_WEIGHTS, FEATURE_NAMES, type AiContext, type AiBoard } from "./ai.ts";
 import { cardStats, buildSide, type CoreView } from "./ai-context.ts";
 
-// A context whose stats() looks up ATK by code; def defaults to 0.
 function ctx(atk: Record<number, number>, oppMonsterValues: number[] = [], oppFaceDownMonsters = 0, attackerAtk = 0, ownMonsterAtks: number[] = [], board?: AiBoard, oppRisk?: number): AiContext {
   return {
     stats: (code) => (atk[code] != null ? { atk: atk[code]!, def: 0, level: 4, isMonster: true, isEffect: false, isExtra: false, isDisruption: false, setcodes: [] } : null),
@@ -16,7 +15,6 @@ function ctx(atk: Record<number, number>, oppMonsterValues: number[] = [], oppFa
   };
 }
 
-// A board where one side is clearly ahead/behind, for posture-driven behavior.
 const side = (over: Partial<AiBoard["self"]> = {}) => ({ lp: 8000, handCount: 3, monsters: [], backrowCount: 0, handInteraction: 0, ...over });
 const board = (self: Partial<AiBoard["self"]>, opp: Partial<AiBoard["opp"]>): AiBoard => ({ self: side(self), opp: side(opp) });
 const idle = (over: Record<string, unknown>) =>
@@ -31,7 +29,7 @@ describe("aiDecide — idle command", () => {
   it("Normal Summons the highest-ATK monster", () => {
     const r = aiDecide(idle({ summons: [{ code: 1 }, { code: 2 }, { code: 3 }] }), ctx({ 1: 1000, 2: 2500, 3: 1700 })) as { action: number; index: number };
     expect(r.action).toBe(SelectIdleCMDAction.SELECT_SUMMON);
-    expect(r.index).toBe(1); // code 2 (2500) is strongest
+    expect(r.index).toBe(1);
   });
   it("Sets a spell/trap when it can't summon", () => {
     const r = aiDecide(idle({ spell_sets: [{ code: 9 }] }), ctx({})) as { action: number };
@@ -54,7 +52,6 @@ describe("aiDecide — activations (combo engine)", () => {
     expect(r.index).toBe(0);
   });
   it("prefers a hand activation, and the lowest-ATK (likely searcher/Spell) among hand cards", () => {
-    // 0: field effect (2500), 1: hand beater (2400), 2: hand searcher/Spell (0).
     const m = idle({ activates: [act(1, OcgLocation.MZONE), act(2, OcgLocation.HAND), act(3, OcgLocation.HAND)] });
     expect((aiDecide(m, ctx({ 1: 2500, 2: 2400, 3: 0 }), "hard") as { index: number }).index).toBe(2);
   });
@@ -72,13 +69,13 @@ describe("aiDecide — battle command", () => {
   });
   it("attacks into a monster only when favorable", () => {
     const unfav = aiDecide(battle({ attacks: [{ code: 1, can_direct: false }] }), ctx({ 1: 1500 }, [1700])) as { action: number };
-    expect(unfav.action).toBe(SelectBattleCMDAction.TO_M2); // 1500 can't beat 1700 → don't suicide
+    expect(unfav.action).toBe(SelectBattleCMDAction.TO_M2);
     const fav = aiDecide(battle({ attacks: [{ code: 1, can_direct: false }] }), ctx({ 1: 2000 }, [1700])) as { action: number };
-    expect(fav.action).toBe(SelectBattleCMDAction.SELECT_BATTLE); // 2000 beats 1700 → attack
+    expect(fav.action).toBe(SelectBattleCMDAction.SELECT_BATTLE);
   });
   it("prefers the direct attacker over a contested one", () => {
     const r = aiDecide(battle({ attacks: [{ code: 1, can_direct: false }, { code: 2, can_direct: true }] }), ctx({ 1: 2500, 2: 1000 }, [3000])) as { index: number };
-    expect(r.index).toBe(1); // direct (code 2) beats the blocked 2500 attacker
+    expect(r.index).toBe(1);
   });
 });
 
@@ -106,13 +103,13 @@ describe("aiDecide — special summon (Extra Deck)", () => {
     const m = idle({ special_summons: [ss(1, OcgLocation.EXTRA), ss(2, OcgLocation.EXTRA)] });
     const c = ctx({ 1: 2000, 2: 2600 });
     expect((aiDecide(m, c, "normal") as { action: number; index: number }).action).toBe(SelectIdleCMDAction.SELECT_SPECIAL_SUMMON);
-    expect((aiDecide(m, c, "normal") as { index: number }).index).toBe(1); // code 2 (2600) is strongest
+    expect((aiDecide(m, c, "normal") as { index: number }).index).toBe(1);
     expect((aiDecide(m, c, "hard") as { action: number }).action).toBe(SelectIdleCMDAction.SELECT_SPECIAL_SUMMON);
-    expect((aiDecide(m, c, "easy") as { action: number }).action).toBe(SelectIdleCMDAction.TO_BP); // Easy stays basic
+    expect((aiDecide(m, c, "easy") as { action: number }).action).toBe(SelectIdleCMDAction.TO_BP);
   });
   it("skips an Extra Deck summon that would trade down a stronger board", () => {
     const m = idle({ special_summons: [ss(1, OcgLocation.EXTRA)] });
-    const c = ctx({ 1: 500 }, [], 0, 0, [2000]); // own weakest 2000 > the 500 body
+    const c = ctx({ 1: 500 }, [], 0, 0, [2000]);
     expect((aiDecide(m, c, "normal") as { action: number }).action).toBe(SelectIdleCMDAction.TO_BP);
   });
   it("always takes a hand / non-Extra special summon (additive, no material cost)", () => {
@@ -121,13 +118,11 @@ describe("aiDecide — special summon (Extra Deck)", () => {
     expect((aiDecide(m, c, "normal") as { action: number }).action).toBe(SelectIdleCMDAction.SELECT_SPECIAL_SUMMON);
   });
   it("falls back to a weaker hand summon when the strongest Extra summon fails the guard", () => {
-    // Strongest is a 2500 Extra body, but our 3000 board makes it a trade-down;
-    // the additive 1500 hand summon should still be taken, not skipped.
     const m = idle({ special_summons: [ss(1, OcgLocation.EXTRA), ss(2, OcgLocation.HAND)] });
     const c = ctx({ 1: 2500, 2: 1500 }, [], 0, 0, [3000]);
     const r = aiDecide(m, c, "normal") as { action: number; index: number };
     expect(r.action).toBe(SelectIdleCMDAction.SELECT_SPECIAL_SUMMON);
-    expect(r.index).toBe(1); // the hand summon (index 1), not skipped
+    expect(r.index).toBe(1);
   });
   it("prefers special summon over a weaker normal summon", () => {
     const m = idle({ special_summons: [ss(2, OcgLocation.EXTRA)], summons: [{ code: 1 }] });
@@ -141,18 +136,16 @@ describe("aiDecide — SELECT_SUM (Synchro material)", () => {
     ({ type: OcgMessageType.SELECT_SUM, select_max: 0, amount: 0, min: 1, max: 3, selects_must: [], selects: [], ...over }) as never;
   const card = (amount: number) => ({ code: amount, controller: 1, location: OcgLocation.MZONE, sequence: 0, amount });
   it("picks the fewest materials that hit the level total exactly", () => {
-    // Tuner (must) level 3, target 8 → pick the single level-5 over the 4+1 pair.
     const m = sum({ amount: 8, min: 1, max: 2, selects_must: [card(3)], selects: [card(4), card(1), card(5)] });
     expect((aiDecide(m, ctx({})) as { indicies: number[] }).indicies).toEqual([2]);
   });
   it("decodes the packed lo/hi level options per card", () => {
-    // must contributes 3 or 5; selects = [lvl5, lvl3]; target 8 → 3+5 via select 0.
     const m = sum({ amount: 8, min: 1, max: 2, selects_must: [{ ...card(0), amount: (5 << 16) | 3 }], selects: [card(5), card(3)] });
     expect((aiDecide(m, ctx({})) as { indicies: number[] }).indicies).toEqual([0]);
   });
   it("falls back to the smallest total meeting the requirement when no exact sum exists", () => {
     const m = sum({ amount: 5, min: 1, max: 2, selects_must: [], selects: [card(3), card(3)] });
-    expect((aiDecide(m, ctx({})) as { indicies: number[] }).indicies).toEqual([0, 1]); // 6 ≥ 5
+    expect((aiDecide(m, ctx({})) as { indicies: number[] }).indicies).toEqual([0, 1]);
   });
 });
 
@@ -177,8 +170,8 @@ describe("aiDecide — reactive (chains / effects)", () => {
     const even = { lp: 8000, handCount: 3, monsters: [], backrowCount: 1, handInteraction: 0 };
     const bigThreat = board({ ...even }, { ...even, monsters: [{ atk: 2500, def: 0, faceUp: true, defense: false }] });
     const quiet = board({ ...even }, { ...even, monsters: [] });
-    expect((aiDecide(m, ctx({}, [], 0, 0, [], bigThreat), "hard") as { index: number | null }).index).toBe(0); // answer the 2500
-    expect((aiDecide(m, ctx({}, [], 0, 0, [], quiet), "hard") as { index: number | null }).index).toBe(null); // hold vs nothing
+    expect((aiDecide(m, ctx({}, [], 0, 0, [], bigThreat), "hard") as { index: number | null }).index).toBe(0);
+    expect((aiDecide(m, ctx({}, [], 0, 0, [], quiet), "hard") as { index: number | null }).index).toBe(null);
   });
   it("reactive TIMING: fires when behind even without a big board threat", () => {
     const m = chain({ selects: [{ code: 9 }] });
@@ -193,14 +186,13 @@ describe("aiDecide — attack target", () => {
     return (aiDecide(m, ctx(codes, [], 0, attackerAtk)) as { indicies: number[] }).indicies;
   };
   it("outside combat, takes the weakest monster", () => {
-    expect(target({ 1: 2000, 2: 800 })).toEqual([1]); // code 2 (800) is weakest
+    expect(target({ 1: 2000, 2: 800 })).toEqual([1]);
   });
   it("when attacking, removes the strongest monster it can beat", () => {
-    // Attacker 2200 vs board of 800 / 1900 / 2500 → kill the 1900 (biggest beatable).
     expect(target({ 1: 800, 2: 1900, 3: 2500 }, 2200)).toEqual([1]);
   });
   it("when nothing is beatable, falls back to the weakest", () => {
-    expect(target({ 1: 2600, 2: 3000 }, 2000)).toEqual([0]); // 2600 is the lesser of two it can't beat
+    expect(target({ 1: 2600, 2: 3000 }, 2000)).toEqual([0]);
   });
 });
 
@@ -220,11 +212,9 @@ describe("aiDecide — summon position", () => {
     expect(pos({}, ctx({ 1: 1600 }, [2500]), "easy")).toBe(OcgPosition.FACEUP_ATTACK);
   });
   it("defends with an even-stats monster while behind (defensive posture)", () => {
-    // 1800 ATK vs a 1800 blocker: neutral keeps attack (can trade), but a
-    // behind AI walls up instead of feeding the trade.
     const behind = board({ lp: 2000, monsters: [], handCount: 1 }, { lp: 8000, monsters: [{ atk: 1800, def: 0, faceUp: true, defense: false }], handCount: 5, backrowCount: 2 });
     expect(pos({}, ctx({ 1: 1800 }, [1800], 0, 0, [], behind), "normal")).toBe(OcgPosition.FACEUP_DEFENSE);
-    expect(pos({}, ctx({ 1: 1800 }, [1800]), "normal")).toBe(OcgPosition.FACEUP_ATTACK); // no board → neutral
+    expect(pos({}, ctx({ 1: 1800 }, [1800]), "normal")).toBe(OcgPosition.FACEUP_ATTACK);
   });
 });
 
@@ -232,15 +222,13 @@ describe("richer features (hand-traps held, archetype cohesion)", () => {
   it("rewards hand-traps held in one's own hand", () => {
     const a = board({ handInteraction: 2 }, { handInteraction: 0 });
     const b = board({ handInteraction: 0 }, { handInteraction: 0 });
-    expect(evaluate(a) - evaluate(b)).toBeCloseTo(2 * 60, 5); // handInteraction weight 60
+    expect(evaluate(a) - evaluate(b)).toBeCloseTo(2 * 60, 5);
   });
   it("rewards a coherent same-archetype board (cohesion = largest group − 1)", () => {
     const m = (sc: number[]) => ({ atk: 1500, def: 0, faceUp: true, defense: false, setcodes: sc }) as AiBoard["self"]["monsters"][number];
     const coherent = board({ monsters: [m([0x99]), m([0x99]), m([0x99])] }, { monsters: [m([1]), m([2]), m([3])] });
-    // self: 3 share archetype 0x99 → cohesion 2; opp: all distinct → 0. Δ = 2*50.
     const f = features(coherent);
     expect(f[11]).toBe(2);
-    // isolate cohesion's contribution by mirroring everything except setcodes:
     const sameStats = board({ monsters: [m([1]), m([2]), m([3])] }, { monsters: [m([1]), m([2]), m([3])] });
     expect(evaluate(coherent) - evaluate(sameStats)).toBeCloseTo(2 * 50, 5);
   });
@@ -248,11 +236,11 @@ describe("richer features (hand-traps held, archetype cohesion)", () => {
 
 describe("cardStats effect classification", () => {
   it("derives effect / extra-deck / monster bits from the type bitfield", () => {
-    expect(cardStats({ type: 0x1 | 0x10 })).toMatchObject({ isMonster: true, isEffect: false, isExtra: false }); // Normal monster
-    expect(cardStats({ type: 0x1 | 0x20 })).toMatchObject({ isMonster: true, isEffect: true, isExtra: false }); // Effect monster
-    expect(cardStats({ type: 0x1 | 0x20 | 0x4000000 })).toMatchObject({ isEffect: true, isExtra: true }); // Link effect monster
-    expect(cardStats({ type: 0x1 | 0x2000 })).toMatchObject({ isExtra: true }); // Synchro
-    expect(cardStats({ type: 0x2 })).toMatchObject({ isMonster: false, isEffect: false }); // Spell
+    expect(cardStats({ type: 0x1 | 0x10 })).toMatchObject({ isMonster: true, isEffect: false, isExtra: false });
+    expect(cardStats({ type: 0x1 | 0x20 })).toMatchObject({ isMonster: true, isEffect: true, isExtra: false });
+    expect(cardStats({ type: 0x1 | 0x20 | 0x4000000 })).toMatchObject({ isEffect: true, isExtra: true });
+    expect(cardStats({ type: 0x1 | 0x2000 })).toMatchObject({ isExtra: true });
+    expect(cardStats({ type: 0x2 })).toMatchObject({ isMonster: false, isEffect: false });
     expect(cardStats(null)).toBeNull();
   });
 });
@@ -264,17 +252,17 @@ describe("buildSide — effect bits, no peeking at face-downs", () => {
       queryLoc: (_p, loc) => (loc === OcgLocation.MZONE
         ? [
             { position: OcgPosition.FACEUP_ATTACK, code: 100, attack: 2000, defense: 0 },
-            { position: OcgPosition.FACEDOWN_DEFENSE, code: 200, attack: 0, defense: 0 }, // hidden
+            { position: OcgPosition.FACEDOWN_DEFENSE, code: 200, attack: 0, defense: 0 },
           ]
         : []),
       queryCount: () => 0,
       lp: () => 8000,
-      stats: (code) => { peeked.push(code); return cardStats({ type: 0x1 | 0x20 | 0x4000000 }); }, // effect + Link
+      stats: (code) => { peeked.push(code); return cardStats({ type: 0x1 | 0x20 | 0x4000000 }); },
     };
     const side = buildSide(view, 1);
     expect(side.monsters[0]).toMatchObject({ faceUp: true, isEffect: true, isExtra: true });
     expect(side.monsters[1]).toMatchObject({ faceUp: false, isEffect: false, isExtra: false });
-    expect(peeked).toEqual([100]); // the face-down (code 200) type was never queried
+    expect(peeked).toEqual([100]);
   });
 });
 
@@ -285,24 +273,23 @@ describe("effect-aware features", () => {
 
   it("prefers an effect monster over a stat-identical vanilla (same ATK/DEF/counts)", () => {
     const withEffect = board({ monsters: [effM(2000)] }, { monsters: [vanillaM(2000)] });
-    expect(evaluate(withEffect)).toBeGreaterThan(0); // only difference is the effect bit
+    expect(evaluate(withEffect)).toBeGreaterThan(0);
   });
   it("values an Extra-Deck boss above a vanilla of equal ATK (effect + extra both count)", () => {
     const boss = board({ monsters: [extraM(2500)] }, { monsters: [vanillaM(2500)] });
     const eff = board({ monsters: [effM(2500)] }, { monsters: [vanillaM(2500)] });
-    expect(evaluate(boss)).toBeGreaterThan(evaluate(eff)); // extra-deck adds on top of effect
+    expect(evaluate(boss)).toBeGreaterThan(evaluate(eff));
   });
   it("adds disruption value for a negate/floodgate monster, all else equal", () => {
     const m = (d: boolean) => ({ atk: 2000, def: 0, faceUp: true, defense: false, isEffect: true, isExtra: true, isDisruption: d }) as AiBoard["self"]["monsters"][number];
     const withNegate = board({ monsters: [m(true)] }, { monsters: [] });
     const without = board({ monsters: [m(false)] }, { monsters: [] });
     expect(evaluate(withNegate)).toBeGreaterThan(evaluate(without));
-    expect(evaluate(withNegate) - evaluate(without)).toBeCloseTo(250, 5); // the disruption weight
+    expect(evaluate(withNegate) - evaluate(without)).toBeCloseTo(250, 5);
   });
   it("never counts a face-down monster's type (no peeking)", () => {
     const facedown = { atk: 0, def: 0, faceUp: false, defense: true, isEffect: true, isExtra: true, isDisruption: true } as AiBoard["self"]["monsters"][number];
     const b = board({ monsters: [facedown] }, { monsters: [] });
-    // effMonsters/extraMonsters/disruption features are all 0 here (face-down).
     expect(features(b)[7]).toBe(0);
     expect(features(b)[8]).toBe(0);
     expect(features(b)[9]).toBe(0);
@@ -320,7 +307,7 @@ describe("features / learnable weights", () => {
     features(adv).forEach((v, i) => expect(features(mirror)[i]).toBeCloseTo(-v, 9));
   });
   it("evaluate is the dot product of features and the given weights", () => {
-    const w = FEATURE_NAMES.map((_, i) => i + 1); // length matches the feature vector
+    const w = FEATURE_NAMES.map((_, i) => i + 1);
     const expected = features(adv).reduce((s, f, i) => s + f * w[i]!, 0);
     expect(evaluate(adv, w)).toBeCloseTo(expected, 9);
   });
@@ -329,8 +316,8 @@ describe("features / learnable weights", () => {
     try {
       setEvalWeights(FEATURE_NAMES.map(() => 0));
       expect(evaluate(adv)).toBe(0);
-      setEvalWeights([1, 2, 3]); // wrong length → ignored
-      expect(evaluate(adv)).toBe(0); // unchanged
+      setEvalWeights([1, 2, 3]);
+      expect(evaluate(adv)).toBe(0);
     } finally {
       setEvalWeights(original);
     }
@@ -343,7 +330,7 @@ describe("determinized play-around (survival-adjusted scoring)", () => {
     const b = board({ monsters: [mon(2000), mon(1800)], handCount: 3 }, {});
     const after = applyDisruptionToSelf(b, { kind: "wipe" });
     expect(after.self.monsters).toHaveLength(0);
-    expect(after.self.handCount).toBe(3); // hand untouched — why holding back survives
+    expect(after.self.handCount).toBe(3);
   });
   it("removeBest takes the strongest body; negate strips the key monster's effect", () => {
     const b = board({ monsters: [mon(2500), mon(1000)] }, {});
@@ -354,14 +341,12 @@ describe("determinized play-around (survival-adjusted scoring)", () => {
     expect(negated.isEffect).toBe(false);
   });
   it("discounts a fragile (wider) board MORE than a lean one when a wipe is likely", () => {
-    // The wider all-in board loses more value to the wipe scenario, so its
-    // survival discount is larger — this is what steers the search off over-commit.
     const wide = board({ monsters: [mon(2000), mon(2000), mon(2000)] }, { backrowCount: 3 });
     const lean = board({ monsters: [mon(2000)] }, { backrowCount: 3 });
     const wipeLikely = [{ p: 0.4, effect: { kind: "none" as const } }, { p: 0.6, effect: { kind: "wipe" as const } }];
     const discount = (b: AiBoard) => evaluate(b) - survivalScore(b, wipeLikely);
     expect(discount(wide)).toBeGreaterThan(discount(lean));
-    expect(survivalScore(wide, wipeLikely)).toBeLessThan(evaluate(wide)); // disruption can only cost value
+    expect(survivalScore(wide, wipeLikely)).toBeLessThan(evaluate(wide));
   });
   it("with no disruption risk, survival score is just the board evaluation", () => {
     const b = board({ monsters: [mon(2000), mon(2000)] }, {});
@@ -391,21 +376,17 @@ describe("aiDecide — lethal & risk-aware combat", () => {
     const lethalBoard = board({ monsters: [] }, { lp: 3000, monsters: [], backrowCount: 3 });
     const m = battle({ attacks: [{ code: 1, can_direct: true }, { code: 2, can_direct: true }] });
     const r = aiDecide(m, ctx({ 1: 1600, 2: 1500 }, [], 0, 0, [], lethalBoard), "hard") as { action: number };
-    expect(r.action).toBe(SelectBattleCMDAction.SELECT_BATTLE); // 1600+1500 ≥ 3000 → take it, backrow be damned
+    expect(r.action).toBe(SelectBattleCMDAction.SELECT_BATTLE);
   });
   it("Hard holds a non-essential direct attack into open backrow while ahead", () => {
-    // Comfortably ahead, opponent has set cards, the swing isn't lethal → don't
-    // walk a chip attack into a possible trap.
     const ahead = board({ lp: 8000, handCount: 5, monsters: [{ atk: 2500, def: 0, faceUp: true, defense: false }], backrowCount: 1 }, { lp: 8000, handCount: 0, monsters: [], backrowCount: 3 });
     const m = battle({ attacks: [{ code: 1, can_direct: true }] });
     expect((aiDecide(m, ctx({ 1: 2500 }, [], 0, 0, [2500], ahead), "hard") as { action: number }).action).toBe(SelectBattleCMDAction.TO_M2);
-    // Normal isn't cautious — it still takes the free damage.
     expect((aiDecide(m, ctx({ 1: 2500 }, [], 0, 0, [2500], ahead), "normal") as { action: number }).action).toBe(SelectBattleCMDAction.SELECT_BATTLE);
   });
 });
 
 describe("aiDecide — real-time adaptation (opponent-disruption risk)", () => {
-  // Same board (open backrow), only the read on the opponent differs.
   const loaded = board({ lp: 8000, monsters: [{ atk: 2500, def: 0, faceUp: true, defense: false }] }, { lp: 8000, monsters: [], backrowCount: 2 });
   const m = battle({ attacks: [{ code: 1, can_direct: true }] });
   it("holds a non-essential chip attack when the opponent looks loaded (high risk)", () => {
@@ -429,8 +410,6 @@ describe("aiDecide — posture-driven idle play", () => {
     expect(r.action).toBe(SelectIdleCMDAction.SELECT_MONSTER_SET);
   });
   it("conserves an optional chain response against a quiet board (both difficulties)", () => {
-    // Ahead, opponent has no threat on board → reactive timing holds the response
-    // for a real threat rather than spending it now, for Normal and Hard alike.
     const ahead = board({ lp: 8000, handCount: 5, monsters: [{ atk: 2500, def: 0, faceUp: true, defense: false }], backrowCount: 2 }, { lp: 4000, handCount: 0, monsters: [], backrowCount: 0 });
     const m = chain({ selects: [{ code: 9 }] });
     expect((aiDecide(m, ctx({}, [], 0, 0, [], ahead), "hard") as { index: number | null }).index).toBe(null);

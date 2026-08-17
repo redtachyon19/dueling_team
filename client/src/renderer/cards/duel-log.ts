@@ -1,17 +1,10 @@
-// Pure formatting of the duel event stream into human-readable log lines.
-// Events arrive already redacted + perspective-localized by the host, so player
-// 0 is always "You" and player 1 is "Opponent", and any hidden card codes have
-// been stripped (drawn cards show as a count; a Set card shows as "a card").
-
 import type { DuelEvent, DuelPlayer } from "@duel/shared";
 
 type NameOf = (code: number | null | undefined) => string;
 
 const who = (p: DuelPlayer): string => (p === 0 ? "You" : "Opponent");
-/** "You" → "draw" / Opponent → "draws" (so lines read naturally). */
 const verb = (p: DuelPlayer, you: string, other: string): string => (p === 0 ? you : other);
 
-/** Format a single event into a log line, or null to skip (noise / no info). */
 export function logLine(e: DuelEvent, nameOf: NameOf): string | null {
   switch (e.kind) {
     case "turn":
@@ -46,11 +39,10 @@ export function logLine(e: DuelEvent, nameOf: NameOf): string | null {
     case "phase":
     case "move":
     default:
-      return null; // phase noise / bare moves carry no useful line
+      return null;
   }
 }
 
-/** Map a batch of events to log entries (with stable ids), dropping skipped ones. */
 export function toLogEntries(events: DuelEvent[], nameOf: NameOf, startId: number): { id: number; text: string }[] {
   const out: { id: number; text: string }[] = [];
   let id = startId;

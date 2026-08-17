@@ -1,11 +1,3 @@
-// scripts/ledger.test.ts
-//
-// The reconciliation rules decide the entire card pool, so they get tested even
-// though the rest of scripts/ is manual build-time tooling. Pure logic — no
-// network, no disk.
-//
-//   pnpm test:scripts
-
 import { describe, expect, it } from "vitest";
 import { reconcile, includedCodes, type Decision, type Ledger } from "./ledger.ts";
 
@@ -31,8 +23,6 @@ describe("ledger reconciliation", () => {
     expect(r.added).toHaveLength(1);
   });
 
-  // The reason this file exists: a flaky Yugipedia response must not be able to
-  // evict a card that is already in the pool.
   it("keeps an included card when upstream suddenly calls it OCG-only", () => {
     const { l, r } = run([{ code: 100, name: "Kept Card", status: "exclude", reason: "ocg-only" }]);
     expect(l.include["100"]).toBeDefined();
@@ -47,7 +37,6 @@ describe("ledger reconciliation", () => {
     expect(l.include["200"]).toBeUndefined();
   });
 
-  // Without this an announced card would stay excluded forever once it shipped.
   it("re-derives 'unreleased' so a card enters the pool when its set ships", () => {
     const { l, r } = run([{ code: 300, name: "Future Card", status: "include", reason: "tcg" }]);
     expect(l.include["300"]).toBeDefined();

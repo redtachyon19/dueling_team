@@ -1,12 +1,3 @@
-// @duel/engine
-//
-// Pure helpers over the duel contracts in @duel/shared. ocgcore (in the main
-// process) is the rules authority and the source of board truth (queried), but
-// these pure functions own the parts worth unit-testing without the WASM core:
-// phase/position decoding and the life-point / turn / win reducer that projects
-// the DuelEvent stream onto a DuelState. No I/O, no Date.now(), no deps beyond
-// @duel/shared.
-
 import type {
   CardPosition,
   DuelEvent,
@@ -16,7 +7,6 @@ import type {
   DuelState,
 } from "@duel/shared";
 
-// Mirror of ocgcore's OcgPhase bitmask (kept here so engine has no core dep).
 export const OCG_PHASE = {
   DRAW: 0x01,
   STANDBY: 0x02,
@@ -53,7 +43,6 @@ export function phaseFromOcg(phase: number): DuelPhase {
   }
 }
 
-// Mirror of ocgcore's OcgPosition bitmask.
 export const OCG_POS = {
   FACEUP_ATTACK: 0x1,
   FACEDOWN_ATTACK: 0x2,
@@ -97,12 +86,6 @@ export function initialDuelState(lp0 = 8000, lp1 = 8000): DuelState {
   };
 }
 
-/**
- * Pure reducer projecting one DuelEvent onto a DuelState. The board (hand /
- * zones / pile counts) is authoritative from the core's queries and is NOT
- * reduced here — this owns life points, phase, turn, and win/loss, which is the
- * "vanilla duel" outcome the milestone test asserts. Returns a new state.
- */
 export function reduceEvent(state: DuelState, event: DuelEvent): DuelState {
   const next: DuelState = {
     ...state,
@@ -127,7 +110,7 @@ export function reduceEvent(state: DuelState, event: DuelEvent): DuelState {
       next.winner = event.player;
       break;
     default:
-      break; // draw/summon/move/attack/etc. don't change reduced state
+      break;
   }
   return next;
 }
@@ -136,7 +119,6 @@ export function reduceEvents(state: DuelState, events: DuelEvent[]): DuelState {
   return events.reduce(reduceEvent, state);
 }
 
-/** Convenience: is `p` defeated? (lp 0, or an explicit win for the other player). */
 export function isDefeated(state: DuelState, p: DuelPlayer): boolean {
   return state.players[p].lp <= 0 || (state.over && state.winner !== null && state.winner !== p);
 }

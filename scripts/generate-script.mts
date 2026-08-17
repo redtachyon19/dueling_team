@@ -1,21 +1,3 @@
-// scripts/generate-script.mts
-//
-// BUILD-TIME ONLY. Generate a candidate ocgcore Lua script for a card using a
-// hosted LLM (Claude) with retrieval-augmented exemplars and an execution
-// verifier in the loop. DRAFTS ONLY — output lands in a review staging dir and
-// is never written into assets/ocgcore/script. A human reviews before it ships.
-//
-//   pnpm gen:script <passcode> [--k=6] [--repairs=3] [--model=claude-opus-4-8]
-//
-// Pipeline: retrieve the k most effect-similar cards (rag-corpus) → prompt Claude
-// with their (card text → Lua) pairs + the target card → verify the output in the
-// real engine (verify-script, card data synthesized by card-encoder) → on failure
-// feed the engine's error text back and regenerate, up to --repairs times.
-//
-// AUTH: reads ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) from the environment.
-// With no key set, it explains what to set and exits without calling the API, so
-// the whole pipeline is wired and ready the moment a key is available.
-
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
@@ -50,7 +32,6 @@ interface CardWithDesc extends DbCard {
   frameType?: string;
 }
 
-/** Compact one-line card descriptor for the prompt. */
 function cardBlock(c: CardWithDesc): string {
   const stats: string[] = [`Type: ${c.type}`];
   if (/Monster|Token/.test(c.type)) {
@@ -65,7 +46,6 @@ function cardBlock(c: CardWithDesc): string {
   return `Passcode: ${c.id}\nName: ${c.name}\n${stats.join(" | ")}\nEffect:\n${c.desc}`;
 }
 
-/** Strip accidental ```lua fences and leading prose, keep from the first `local s`. */
 function extractLua(text: string): string {
   let t = text.trim();
   const fence = t.match(/```(?:lua)?\s*([\s\S]*?)```/i);
@@ -90,7 +70,6 @@ export interface GenResult {
   verify: VerifyResult;
 }
 
-/** Generate + verify + repair. Requires an authed Anthropic client. */
 export async function generateCardScript(
   client: Anthropic,
   target: CardWithDesc,
@@ -136,7 +115,6 @@ export async function generateCardScript(
   return { code: target.id, lua, ok: false, attempts: deps.maxRepairs + 1, verify };
 }
 
-// --- CLI -------------------------------------------------------------------
 function flag(name: string, def: string): string {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
   return hit ? hit.slice(name.length + 3) : def;
@@ -152,7 +130,6 @@ async function main() {
   const maxRepairs = Number(flag("repairs", "3"));
   const model = flag("model", MODEL_DEFAULT);
 
-  // Auth gate — structured to read the key when it's ready.
   if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
     console.error(
       "✗ No Anthropic credentials found.\n" +
@@ -176,7 +153,6 @@ async function main() {
 
   console.log(`Generating script for c${code}  ${target.name}  [${target.type}]`);
 
-  // Retrieval + engine + encoder.
   const corpus = loadCorpus();
   const hits = corpus.retrieve(target, k, { excludeId: code });
   const exemplars = hits.map((h) => ({ entry: h.entry, script: corpus.scriptOf(h.entry) }));
@@ -189,10 +165,9 @@ async function main() {
   const core = await getCore();
   const verify = (lua: string) => verifyCardScript(core, readers, { code, lua, cardData });
 
-  const client = new Anthropic(); // reads ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN from env
+  const client = new Anthropic();
   const result = await generateCardScript(client, target, { exemplars, verify, model, maxRepairs, log: (m) => console.log(m) });
 
-  // Write the DRAFT to the review staging dir — never assets/ocgcore/script.
   const outDir = path.join(path.dirname(readers.scriptDir), "generated");
   mkdirSync(outDir, { recursive: true });
   const outFile = path.join(outDir, `c${code}.lua`);

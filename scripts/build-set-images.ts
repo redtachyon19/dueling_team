@@ -1,58 +1,20 @@
-// scripts/build-set-images.ts
-//
-// BUILD-TIME ONLY. Run manually by Red.
-//
-//   pnpm build:set-images                          (gentle: 1 req at a time)
-//   pnpm build:set-images --codes=CORI,LAVD        (just the sets that dropped)
-//   pnpm build:set-images --force --limit=20
-//   pnpm build:set-images --concurrency=2 --delay=600   (only if the site allows)
-//
-// NOTE: the product site has a WAF that 403-blocks aggressive scraping for a
-// while. Defaults are intentionally slow (concurrency 1, ~1.2s between pages).
-// It's resumable — if the run gets blocked partway, just run it again later and
-// it picks up the missing sets.
-//
-// Scrapes the official Yu-Gi-Oh! product site for each set's top box/pack image
-// and saves it as:
-//
-//   assets/sets/<type>/{CODE}.png    (official box/pack art, bucketed by set
-//                                     type — boosters/, structure-decks/, tins/,
-//                                     etc. — separate from the YGOPRODeck set
-//                                     logos in sets/images/)
-//
-// For every set code in engine/sets/db.json it requests
-//   https://www.yugioh-card.com/en/products/{code-lowercased}/
-// and takes the FIRST product image in document order (the hero/box art),
-// skipping site chrome (logos, icons) and WordPress responsive thumbnails
-// (the "-WIDTHxHEIGHT" variants). Naming of the source file varies a lot
-// ("DUAD_550.png", "LOB_25th_550.png", "blzd_foil_550x550.png",
-// "LEDE-Foil-550x550-1.png"), so we rely on document order, not the filename.
-//
-// Resumable (skip-if-exists). Sets without a code-slug product page (older /
-// OCG / promo sets) are reported as misses. TCG only — output lives inside the
-// private, tracked assets/.
-
 import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import { PATHS, readJson, ensureDir, exists, pLimit, sleep, numFlag, hasFlag, listFlag } from "./_lib.ts";
 
-// The product pages sit behind a CDN/WAF that wants a browser-like UA.
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const SITE = "https://www.yugioh-card.com";
 const PRODUCT = `${SITE}/en/products/`;
 
 const CHROME = /logo|nav-menu|icon-|legal|cardlist_button|remote_duel|share|placeholder/i;
-const THUMB = /-\d+x\d+\.(?:png|jpe?g)$/i; // WordPress responsive variant
-// Paths on the page are under /en/wp-content/… — keep the /en prefix so the
-// reconstructed download URL is correct (without it the image 404s).
+const THUMB = /-\d+x\d+\.(?:png|jpe?g)$/i;
 const UPLOAD = /(?:\/en)?\/wp-content\/uploads\/\d{4}\/\d{2}\/[A-Za-z0-9_.\-]+\.(?:png|jpe?g)/gi;
 
 interface SetDb {
   sets: Array<{ code: string; name: string }>;
 }
 
-/** Folder a set's box art belongs in, by set type inferred from its name. */
 function bucketForName(name: string): string {
   const n = name.toLowerCase();
   if (n.includes("speed duel")) return "speed-duel";
@@ -65,8 +27,6 @@ function bucketForName(name: string): string {
   return "boosters";
 }
 
-// Statuses the site's WAF returns when throttling (not just 429). A 404 is a
-// real "no page" and returned immediately; these get backed off and retried.
 const BLOCKED = new Set([429, 403, 503, 502, 520, 521, 522, 523, 524]);
 
 async function get(url: string): Promise<Response | null> {
@@ -76,7 +36,7 @@ async function get(url: string): Promise<Response | null> {
         headers: { "User-Agent": UA, Accept: "text/html,image/*,*/*" },
       });
       if (BLOCKED.has(res.status)) {
-        await sleep(3000 * (i + 1)); // throttled — back off
+        await sleep(3000 * (i + 1));
         continue;
       }
       return res;
@@ -87,7 +47,6 @@ async function get(url: string): Promise<Response | null> {
   return null;
 }
 
-/** The top (hero/box) product image URL for a set code, or null if no page. */
 async function topImageUrl(code: string): Promise<string | null> {
   const res = await get(`${PRODUCT}${code.toLowerCase()}/`);
   if (!res || !res.ok) return null;
@@ -104,15 +63,9 @@ async function topImageUrl(code: string): Promise<string | null> {
 }
 
 async function main() {
-  // Gentle by default: the product site's WAF blocks aggressive scraping (and
-  // will 403 your IP for a while if you trip it). Override only if you know the
-  // site is tolerating it: --concurrency=2 --delay=600
   const force = hasFlag("force");
   const concurrency = numFlag("concurrency", 1);
   const limit = numFlag("limit", Infinity);
-  // --codes=CORI,LAVD → only those set codes. Use after a new set drops so a
-  // handful of pages get requested instead of re-walking all ~650 (every miss
-  // costs a page request, and the WAF notices).
   const codes = new Set(listFlag("codes").map((c) => c.toUpperCase()));
 
   const db = await readJson<SetDb>(PATHS.setsDb);
@@ -129,7 +82,7 @@ async function main() {
   console.log(`→ Scraping top set image for ${targets.length} set(s), concurrency ${concurrency}${force ? ", force" : ""}…`);
 
   const run = pLimit(concurrency);
-  const delay = numFlag("delay", 1200); // polite gap before each page request (ms)
+  const delay = numFlag("delay", 1200);
   const stats = { ok: 0, skip: 0, missing: 0, error: 0 };
   const misses: string[] = [];
   let done = 0;
@@ -137,8 +90,6 @@ async function main() {
   await Promise.all(
     targets.map(({ code, name }) =>
       run(async () => {
-        // Box art is filed under assets/sets/<type>/<CODE>.png (boosters,
-        // structure-decks, tins, …), by the set's type inferred from its name.
         const dir = join(PATHS.sets, bucketForName(name));
         const dest = join(dir, `${code}.png`);
         try {

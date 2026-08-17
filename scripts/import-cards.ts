@@ -1,42 +1,3 @@
-// scripts/import-cards.ts
-//
-// BUILD-TIME ONLY. Run manually by Red.
-//
-//   pnpm import:cards
-//   pnpm import:cards --include-unreleased   # keep not-yet-released sets
-//   pnpm import:cards --strict               # hold brand-new passcodes for review
-//
-// THE LEDGER DECIDES. Every upstream card is classified (kept, or excluded as
-// skill-card / ocg-only / manual / unreleased) and folded into
-// engine/cards/ledger.json; db.json is then built from whatever that ledger
-// marks `include`. A passcode already in the ledger keeps its decision, so a
-// flaky Yugipedia response can no longer silently evict a card from the pool —
-// see scripts/ledger.ts for the reconciliation rules.
-//
-// Pulls the full card database from an external source (YGOPRODeck),
-// normalizes it to a compact card-data shape, and writes:
-//
-//   engine/cards/db.json
-//
-// TCG ONLY. We keep every card EXCEPT those Yugipedia classifies as OCG-only
-// (see fetchOcgOnly in _lib.ts) — matched by Konami passcode, or by name for
-// cards with no official passcode (YGOPRODeck placeholder ids ≥ 1e8). We do
-// NOT trust YGOPRODeck's own `formats`/`tcg_date` for this distinction: it has
-// silently mis-flagged TCG-released cards (e.g. "Artmage Vandalism -Assault-")
-// as OCG-only, dropping legitimate TCG cards. Where YGOPRODeck has no set list
-// or release date for a kept card, we backfill both from Yugipedia. Do not
-// store OCG-exclusive names, sets, or text. Output lands in assets/ — the
-// hand-curated card data tracked in this private repo.
-//
-// This script is the only place in the project allowed to hit the network.
-// The running app reads engine/cards/db.json directly and never
-// fetches anything at runtime.
-//
-// NOTE: @duel/shared does not yet declare the frozen card-data shape (it lands
-// with the first engine milestone). The normalized shape below is the working
-// contract; when @duel/shared publishes `CardData`, update `normalize()` to
-// produce exactly that and import the type here.
-
 import {
   PATHS,
   YGO,
@@ -54,37 +15,33 @@ import {
   type Decision, type LedgerReason,
 } from "./ledger.ts";
 
-/** One printing of a card in a set (mirrors @duel/shared CardPrint). */
 interface CardPrint {
-  code: string; // full set code, e.g. "LOB-EN001"
-  name: string; // set name, e.g. "Legend of Blue Eyes White Dragon"
+  code: string;
+  name: string;
   rarity: string | null;
 }
 
-/** A single artwork passcode + the card it belongs to. */
 interface NormalizedCard {
-  id: number; // primary passcode
+  id: number;
   name: string;
-  type: string; // e.g. "Effect Monster", "Spell Card"
-  frameType: string; // e.g. "effect", "spell", "xyz", "link"
+  type: string;
+  frameType: string;
   desc: string;
-  race: string; // monster type ("Dragon") or spell/trap kind ("Continuous")
+  race: string;
   archetype: string | null;
   attribute: string | null;
   atk: number | null;
   def: number | null;
-  level: number | null; // level / rank
-  scale: number | null; // pendulum scale
+  level: number | null;
+  scale: number | null;
   linkval: number | null;
   linkmarkers: string[] | null;
-  /** every artwork passcode for this card (includes alternate arts) */
   images: number[];
-  banlistTcg: string | null; // "Banned" | "Limited" | "Semi-Limited" | null
-  tcgDate: string | null; // earliest TCG release (YYYY-MM-DD)
-  sets: CardPrint[]; // every set this card was printed in
+  banlistTcg: string | null;
+  tcgDate: string | null;
+  sets: CardPrint[];
 }
 
-/** Every distinct printing from a card's card_sets[] (dedup by full set code). */
 function setsOf(card: any): CardPrint[] {
   const out: CardPrint[] = [];
   const seen = new Set<string>();
@@ -97,13 +54,7 @@ function setsOf(card: any): CardPrint[] {
   return out;
 }
 
-/**
- * Confirmed-wrong card names from YGOPRODeck, keyed by passcode. YGOPRODeck
- * sometimes carries an OCG-translated name instead of the official TCG name
- * (notably for Duelist's Advance). Yugipedia is authoritative for these.
- */
 const NAME_OVERRIDE = new Map<number, string>([
-  // DUAD-EN068 — YGOPRODeck had the OCG translation, not the TCG name.
   [98349765, 'Layer 19 "Sudden Incursion! Super Quantum Black!!"'],
 ]);
 
@@ -123,8 +74,6 @@ function normalize(card: any): NormalizedCard {
     scale: card.scale ?? null,
     linkval: card.linkval ?? null,
     linkmarkers: card.linkmarkers ?? null,
-    // Distinct artwork passcodes — YGOPRODeck sometimes repeats the same id in
-    // card_images, which would render duplicate tiles in the grid.
     images: Array.isArray(card.card_images)
       ? [...new Set<number>(card.card_images.map((im: any) => im.id))]
       : [card.id],
@@ -134,12 +83,6 @@ function normalize(card: any): NormalizedCard {
   };
 }
 
-/**
- * Fill gaps YGOPRODeck leaves on cards it wrongly treats as OCG-only: it has
- * no `card_sets` and no `tcg_date` for them. Scrape each such card's Yugipedia
- * "TCG sets" table for its prints (and derive a release date from them), then
- * one bulk Yugipedia query backfills any release date still missing.
- */
 async function backfillFromYugipedia(cards: NormalizedCard[]): Promise<void> {
   const needSets = cards.filter((c) => c.sets.length === 0);
   console.log(`→ Backfilling sets from Yugipedia for ${needSets.length} card(s) with none…`);
@@ -173,8 +116,7 @@ async function backfillFromYugipedia(cards: NormalizedCard[]): Promise<void> {
 }
 
 async function main() {
-  const limit = numFlag("limit", Infinity); // for testing: --limit=50
-  // Pre-release cards are excluded by default — see the filter below.
+  const limit = numFlag("limit", Infinity);
   const includeUnreleased = hasFlag("include-unreleased");
 
   console.log("→ Fetching OCG-only cards from Yugipedia (Medium::OCG-only)…");
@@ -186,14 +128,6 @@ async function main() {
   const all: any[] = json?.data ?? [];
   console.log(`  upstream returned ${all.length} cards`);
 
-  // Drop OCG-only cards. Three ways, all rooted in Yugipedia's Medium::OCG-only
-  // set: (1) by passcode for released cards; (2) by name for cards YGOPRODeck
-  // gives a placeholder id (≥ 1e8 — no official passcode, so Yugipedia has no
-  // Password either); (3) by name for OCG-only promos with a special sub-1e8
-  // passcode that Yugipedia files under a different code (e.g. "Holactie the
-  // Creator of Light", "Magi Magi ☆ Magician Gal") — gated on "no TCG presence"
-  // (no printed sets, no TCG date, not a Token) so a real TCG card that merely
-  // shares a name with an OCG-only variant (e.g. "Zera the Mant") is never hit.
   const PLACEHOLDER_ID = 100_000_000;
   const hasNoTcgPresence = (c: any): boolean =>
     c.type !== "Token" && (c.card_sets?.length ?? 0) === 0 && !c.misc_info?.[0]?.tcg_date;
@@ -202,33 +136,21 @@ async function main() {
     (c.id >= PLACEHOLDER_ID && ocgOnly.names.has(c.name)) ||
     (ocgOnly.names.has(c.name) && hasNoTcgPresence(c));
 
-  // Hand-curated removals (Red's call): types/cards that aren't OCG-only but we
-  // don't want in a TCG card pool.
-  //   - Skill Cards: Speed Duel skills; hundreds of them, not used here.
-  //   - MANUAL_EXCLUDE: confirmed non-paper cards (e.g. video-game-only).
   const REMOVE_TYPES = new Set<string>(["Skill Card"]);
   const MANUAL_EXCLUDE = new Set<number>([
-    100000101, // Ojamandala — video-game-only (Yugipedia Medium: Video game)
-    101206080, // Fireworks Celebration — OCG version of "Summer Schoolwork Successful!"
-    101304014, // "Elvennotes Regina" — OCG-romanization dupe of TCG "Elfnote Regina" (56651978)
-    101303071, // "Elvennotes ~Oracle Alicetea~" — OCG dupe of TCG "Elfnotes: Aristeia of Trust" (50590801)
+    100000101,
+    101206080,
+    101304014,
+    101303071,
   ]);
 
-  // Hand-curated keeps (Red's call): confirmed TCG cards that upstream still
-  // under-tags as OCG-only because their TCG metadata hasn't landed yet (no
-  // card_sets / tcg_date, and Yugipedia's TCG page lags the OCG one). These are
-  // Chaos Origins / Battles of Legend: Glorious Gallery cards that Konami's TCG
-  // Genesys point list already covers, so they belong in the TCG pool. Drop an
-  // entry once a normal import picks the card up on its own.
   const MANUAL_INCLUDE = new Set<number>([
-    83566725, // The Phantom Knights of Doomed Soleret — Yugipedia medium OCG,TCG (shares passcode with an OCG-only "Solleret" page)
-    97462632, // Griffoh
-    82344137, // Phara the Primordial Goddess
-    24461358, // Ragged Records of Rites
+    83566725,
+    97462632,
+    82344137,
+    24461358,
   ]);
 
-  // Classify EVERY upstream card, keeping the reason. Nothing is silently
-  // dropped any more — each rejection becomes a ledger entry you can grep.
   const reasonFor = (c: any): LedgerReason | null => {
     if (MANUAL_INCLUDE.has(c.id)) return null;
     if (REMOVE_TYPES.has(c.type)) return "skill-card";
@@ -251,11 +173,6 @@ async function main() {
 
   await backfillFromYugipedia(allCards);
 
-  // Cards that haven't hit TCG shelves yet. A card only announced for a future
-  // set has no official TCG text — upstream carries a fan translation of the OCG
-  // print, which is exactly what we don't want in the pool. Judged AFTER the
-  // Yugipedia backfill so the date is the best one we have. A null tcgDate is
-  // NOT future-dated: those are old/undated cards (and the MANUAL_INCLUDE ones).
   const today = isoDate();
   const isUnreleased = (c: NormalizedCard) => !includeUnreleased && !!c.tcgDate && c.tcgDate > today;
   const unreleasedCards = allCards.filter(isUnreleased);
@@ -271,10 +188,6 @@ async function main() {
     console.log("    (--include-unreleased keeps them; they carry unofficial translations until release)");
   }
 
-  // --- The ledger decides ---------------------------------------------------
-  // Hand every classification to the ledger, then build db.json from whatever it
-  // says to include. A passcode already recorded keeps its decision, so a flaky
-  // Yugipedia response can no longer quietly evict a card from the pool.
   const decisions: Decision[] = [];
   for (const c of allCards) {
     const unreleasedNow = isUnreleased(c);

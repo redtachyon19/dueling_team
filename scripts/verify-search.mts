@@ -1,19 +1,3 @@
-// Reproducible verification for the DuelBot forward search. MANUAL/build-time.
-//
-//   1. REPLAY FIDELITY (the safety gate): a full game's response log, replayed
-//      into a fresh duel, must reproduce the exact final state. If this ever
-//      fails, the search is scoring lines against a fabricated position — do not
-//      trust its output.
-//   2. SEARCH vs HEURISTIC head-to-head: player 1 plans idle decisions with the
-//      re-sim search; player 0 uses the single-decision heuristic. Same deck both
-//      seats, seats swapped across games to cancel first-player bias. Reports
-//      win-rate, DuelBot activation counts, per-decision latency, completion.
-//
-// Pass your own deck to measure on a real combo deck:
-//   pnpm verify:search path/to/deck.ydk [games=60]
-// Otherwise a built-in Pot-of-Greed + vanilla deck is used (mechanism check only;
-// a vanilla deck has no real combos, so expect a ~50% win-rate there).
-
 import { readFileSync } from "node:fs";
 import type { OcgMessage, OcgResponse } from "@n1xx1/ocgcore-wasm";
 import { getCore, getSearchCore, buildReaders } from "../client/src/main/duel/ocg.ts";
@@ -33,7 +17,7 @@ const roles = loadCardRoles([process.cwd()]);
 console.log(`card roles loaded: ${roles.count} (${roles.source})`);
 const has = (c: number) => !!readers.cardReader(c);
 const stats = (c: number) => cardStats(readers.cardReader(c));
-const isExtra = (c: number) => { const t = readers.cardReader(c)?.type ?? 0; return (t & (0x40 /*FUSION*/ | 0x2000 /*SYNCHRO*/ | 0x800000 /*XYZ*/ | 0x4000000 /*LINK*/)) !== 0; };
+const isExtra = (c: number) => { const t = readers.cardReader(c)?.type ?? 0; return (t & (0x40 | 0x2000 | 0x800000 | 0x4000000)) !== 0; };
 
 function parseYdk(path: string): { main: number[]; extra: number[] } {
   const main: number[] = [], extra: number[] = [];
@@ -63,12 +47,10 @@ if (DECK_PATH) {
   extra = [];
   console.log("Deck: built-in Pot-of-Greed + vanilla (mechanism check; no real combos)");
 }
-// Split any Extra-Deck cards that leaked into main (ydk lists them separately, but be safe).
 const mainDeck = main.filter((c) => !isExtra(c));
 const extraDeck = [...extra, ...main.filter(isExtra)].filter(isExtra);
 const header = (seed: bigint): ReplayHeader => ({ seed4: [seed | 1n, (seed >> 16n) | 1n, (seed >> 32n) | 1n, (seed >> 48n) | 1n], mode: OcgDuelMode.MODE_MR5, p0Main: mainDeck, p0Extra: extraDeck, p1Main: mainDeck, p1Extra: extraDeck });
 
-// --- 1) replay fidelity ------------------------------------------------------
 const LOCS = [OcgLocation.HAND, OcgLocation.MZONE, OcgLocation.SZONE, OcgLocation.GRAVE, OcgLocation.REMOVED, OcgLocation.EXTRA, OcgLocation.DECK];
 const sig = (h: any) => [0, 1].flatMap((p) => LOCS.map((l) => core.duelQueryCount(h, p, l))).join(",");
 {
@@ -86,7 +68,6 @@ const sig = (h: any) => [0, 1].flatMap((p) => LOCS.map((l) => core.duelQueryCoun
   if (!ok) { console.log("  live:", sig1, "\n  replay:", sig2); process.exit(1); }
 }
 
-// --- 2) search vs heuristic --------------------------------------------------
 const searcher = createIdleSearcher(searchCore, readers);
 function play(seed: bigint, searchSeat: 0 | 1): { winner: number; calls: number; nulls: number; activates: number; totalMs: number; maxMs: number; completed: boolean } {
   const hdr = header(seed);
@@ -119,7 +100,7 @@ function play(seed: bigint, searchSeat: 0 | 1): { winner: number; calls: number;
 
 let searchWins = 0, decisive = 0, totalCalls = 0, totalNulls = 0, totalAct = 0, sumMs = 0, maxMs = 0, completed = 0;
 for (let i = 0; i < GAMES; i++) {
-  const searchSeat: 0 | 1 = i % 2 === 0 ? 1 : 0; // swap seats
+  const searchSeat: 0 | 1 = i % 2 === 0 ? 1 : 0;
   const r = play(BigInt(31337 * i + 11), searchSeat);
   totalCalls += r.calls; totalNulls += r.nulls; totalAct += r.activates; sumMs += r.totalMs; maxMs = Math.max(maxMs, r.maxMs); if (r.completed) completed++;
   if (r.winner < 0) continue;

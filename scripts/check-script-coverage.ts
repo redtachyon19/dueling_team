@@ -1,34 +1,3 @@
-// scripts/check-script-coverage.ts
-//
-// BUILD-TIME ONLY. No network. Run manually or in a refresh/CI step.
-//
-//   pnpm check:scripts            # human report, exits non-zero if real gaps
-//   pnpm check:scripts --list     # also print every real gap
-//   pnpm check:scripts --json     # machine-readable report on stdout
-//   pnpm check:scripts --quiet    # only print on real gaps (good for cron)
-//
-// The duel engine (ocgcore) needs two things for every card it plays, both
-// produced by `pnpm import:ocg` from ProjectIgnis:
-//   - an entry in assets/ocgcore/carddata.json   (cardReader — metadata)
-//   - assets/ocgcore/script/c<code>.lua          (scriptReader — effects)
-//
-// Those are a snapshot of a moving upstream, while engine/cards/db.json grows
-// every time `pnpm import:cards` runs. This check is the drift signal between
-// the two: it reports cards in db.json that the engine can't fully represent,
-// so a stale script set can never go unnoticed again.
-//
-// Two independent axes, because they fail differently:
-//   1. MISSING CARDDATA — the engine can't even load the card. Affects every
-//      type (a vanilla monster still needs carddata).
-//   2. MISSING SCRIPT   — the card loads but its effects can't resolve. Only
-//      matters for cards that HAVE effects; vanilla Normal monsters and Tokens
-//      legitimately ship no script, so those are reported as "expected" and do
-//      not count as gaps.
-//
-// Exit code: 0 when there are no real gaps, 1 otherwise — so it can gate a
-// release or drive a notify-only scheduled job. `--json`/`--quiet` never change
-// the exit code, only the output.
-
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PATHS, readJson, hasFlag } from "./_lib.ts";
@@ -44,8 +13,6 @@ interface DbCard {
   images?: number[];
 }
 
-/** Card types that carry no effect, so the absence of a Lua script is expected
- *  and correct (ocgcore plays them from carddata alone). */
 const NO_SCRIPT_TYPES = new Set<string>([
   "Normal Monster",
   "Normal Tuner Monster",
@@ -53,12 +20,6 @@ const NO_SCRIPT_TYPES = new Set<string>([
 ]);
 const isExpectedScriptless = (c: DbCard): boolean => NO_SCRIPT_TYPES.has(c.type);
 
-/** Passcodes ProjectIgnis won't ship under our TCG code (anime/event cards that
- *  slip past db.json's TCG filter because YGOPRODeck dates them; upstream scripts
- *  them only under anime passcodes, e.g. c50100008x). Listed explicitly so they
- *  don't perpetually fail the gate — a NEW gap still trips it. Re-check with
- *  `--all`; remove an entry if upstream adds it (or once aliased into carddata).
- *  Hand-written, engine-verified draft scripts for these live in ocg/generated/. */
 const KNOWN_UNSUPPORTED = new Map<number, string>([
   [662853, "Sanctity of Dragon — anime (no ProjectIgnis script)"],
   [662854, "Noritoshi in Darkest Rainment — anime"],
@@ -71,9 +32,7 @@ interface Gap {
   id: number;
   name: string;
   type: string;
-  /** present in carddata.json (engine can load it) */
   carddata: boolean;
-  /** has a c<code>.lua script (or doesn't need one) */
   script: boolean;
 }
 
@@ -84,7 +43,6 @@ async function main() {
     process.exit(2);
   }
 
-  // Engine data: a set of every script passcode and every carddata code.
   const scriptIds = new Set<number>();
   for (const f of await readdir(SCRIPT_DIR).catch(() => [] as string[])) {
     const m = /^c(\d+)\.lua$/.exec(f);
@@ -99,17 +57,15 @@ async function main() {
     process.exit(2);
   }
 
-  // A card's engine data may be keyed by its primary passcode OR any alternate
-  // artwork passcode (alts share a script/carddata entry via `alias`).
   const idsOf = (c: DbCard): number[] => [c.id, ...(c.images ?? [])];
   const hasCarddata = (c: DbCard) => idsOf(c).some((i) => cardIds.has(i));
   const hasScript = (c: DbCard) => idsOf(c).some((i) => scriptIds.has(i));
 
   const missingCarddata: Gap[] = [];
-  const missingScript: Gap[] = []; // effect-bearing cards only
-  let expectedScriptless = 0; // vanilla + tokens with no script (fine)
-  let knownUnsupported = 0; // documented anime/event cards (KNOWN_UNSUPPORTED)
-  const showAll = hasFlag("all"); // surface known-unsupported as gaps too
+  const missingScript: Gap[] = [];
+  let expectedScriptless = 0;
+  let knownUnsupported = 0;
+  const showAll = hasFlag("all");
 
   for (const c of db.cards) {
     const carddataOk = hasCarddata(c);
@@ -128,8 +84,6 @@ async function main() {
     }
   }
 
-  // Which gaps are actually playable right now? Cross-reference the newest
-  // Genesys list — a missing script there blocks a legal, current-format card.
   const genesysIdx = await readJson<{ revisions: Array<{ file: string }> }>(PATHS.genesysIndex);
   let genesysIds = new Set<number>();
   let genesysDate = "";
@@ -144,8 +98,6 @@ async function main() {
   const onGenesys = (g: Gap) => genesysIds.has(g.id);
   const playableGaps = [...new Set([...missingCarddata, ...missingScript].filter(onGenesys).map((g) => g.id))];
 
-  // Count DISTINCT cards with at least one gap — a card missing both carddata
-  // and a script is one unsupported card, not two.
   const realGaps = new Set([...missingCarddata, ...missingScript].map((g) => g.id)).size;
   const byType = (gaps: Gap[]) => {
     const m: Record<string, number> = {};

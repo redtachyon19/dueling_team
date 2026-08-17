@@ -1,8 +1,3 @@
-// client/src/renderer/pages/ArchetypeDetail.tsx
-//
-// Full-page view for an archetype: every card belonging to it, via the shared
-// CardGridPage shell. Reached by clicking the archetype in a card's detail.
-
 import { useMemo } from "react";
 import type { CardData } from "@duel/shared";
 import { CardGridPage } from "./CardGridPage.tsx";

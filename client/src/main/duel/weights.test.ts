@@ -23,7 +23,6 @@ describe("parseWeights", () => {
 
 describe("loadEvalWeights", () => {
   it("falls back to defaults when no weights file is found", () => {
-    // A path with no assets/ai/eval-weights.json anywhere above it.
     const res = loadEvalWeights(["/nonexistent-root-xyz/sub/dir"]);
     expect(res.source).toBe("default");
     expect(res.weights).toEqual(DEFAULT_WEIGHTS.slice());
