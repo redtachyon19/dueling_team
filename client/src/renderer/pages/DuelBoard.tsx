@@ -87,7 +87,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
   const [logOpen, setLogOpen] = useState(false);
   const [placing, setPlacing] = useState<{ promptId: number; optionId: string; kind: "monster" | "spell" } | null>(null);
 
-  const { boardTilt, boardScale } = useSettings();
+  const { boardTilt, boardScale, deckThickness } = useSettings();
 
   // The board stays mounted while another tab is on screen, so every global key
   // handler below must ignore keystrokes meant for that tab. A ref keeps the
@@ -559,6 +559,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
         "--zone": `${zonePx}px`,
         "--tilt": `${boardTilt}deg`,
         "--field-scale": boardScale,
+        "--stack-mult": deckThickness,
         // A rotated (set / defense) card is --card-h wide, 16px short of the
         // zone. Scaling by this makes it span the cell exactly, so two set
         // monsters in adjacent zones touch. CSS can't divide length by length,
@@ -945,21 +946,18 @@ function FieldZone({ card, local, actionable, nameOf }: { card: DuelCard | null;
  */
 const CARD_WIDTH_MM = 59;
 const CARD_THICKNESS_MM = 0.305;
-// 1.0 = physically exact. At our render size a 40-card deck is already ~13px of
-// edge, which is plenty — the earlier 2.6-3.4x is what turned it into a wedge.
-const STACK_EXAGGERATION = 1;
-const STACK_PER_CARD = (CARD_THICKNESS_MM / CARD_WIDTH_MM) * STACK_EXAGGERATION;
+/** Physically exact per-card height, as a fraction of --card-w. The on-screen
+ *  multiplier is the `deckThickness` setting, applied via --stack-mult so it
+ *  can be dialled live without recomputing anything here. */
+const STACK_PER_CARD = CARD_THICKNESS_MM / CARD_WIDTH_MM;
+const stackHeight = (count: number): string =>
+  `calc(var(--card-w) * ${(STACK_PER_CARD * Math.min(count, 60)).toFixed(5)} * var(--stack-mult, 1))`;
 
 function StackLayers({ count }: { count: number }): JSX.Element | null {
   if (count <= 1) return null;
   // Stack height as a fraction of --card-w, straight from the real card.
-  const h = (STACK_PER_CARD * Math.min(count, 60)).toFixed(5);
   return (
-    <div
-      className="dstack"
-      aria-hidden="true"
-      style={{ "--stack-h": `calc(var(--card-w) * ${h})` } as CSSProperties}
-    >
+    <div className="dstack" aria-hidden="true" style={{ "--stack-h": stackHeight(count) } as CSSProperties}>
       <div className="dstack__front" />
       {/* Both sides are drawn; backface culling shows only the one actually
           facing the camera, so a pile on the right of the board reveals its
@@ -989,7 +987,7 @@ function Pile({ kind, label, count, deckLocal, extraLocal, faceCode, summonReady
     >
       <div
         className={`dslot dslot--${kind}${count > 1 ? " has-stack" : ""}`}
-        style={{ "--stack-h": `calc(var(--card-w) * ${(STACK_PER_CARD * Math.min(count, 60)).toFixed(5)})` } as CSSProperties}
+        style={{ "--stack-h": stackHeight(count) } as CSSProperties}
       >
         <StackLayers count={count} />
         {faceCode != null

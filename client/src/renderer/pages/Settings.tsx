@@ -106,6 +106,12 @@ export function Settings(): JSX.Element {
             format={(v) => `${Math.round(v * 100)}%`}
           />
           <Slider
+            setting="deckThickness"
+            label="Deck thickness"
+            hint="How tall the deck, extra deck, graveyard and banished piles stand. 100% is a real card's thickness (0.305 mm); higher just makes the stacks taller."
+            format={(v) => `${Math.round(v * 100)}%`}
+          />
+          <Slider
             setting="boardTilt"
             label="Board tilt"
             hint="How far the field leans away from you. 0° is flat top-down; higher angles give it more depth."

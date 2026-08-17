@@ -5,13 +5,16 @@ export interface AppSettings {
   boardTilt: number;
   /** Uniform zoom on the whole field, contents included. 1 = fit to the window. */
   boardScale: number;
+  /** Deck-stack height multiplier. 1 = physically exact card thickness. */
+  deckThickness: number;
 }
 
-export const DEFAULTS: AppSettings = { boardTilt: 16, boardScale: 1.15 };
+export const DEFAULTS: AppSettings = { boardTilt: 16, boardScale: 1.15, deckThickness: 1.6 };
 
 export const LIMITS: Record<keyof AppSettings, { min: number; max: number; step: number }> = {
   boardTilt: { min: 0, max: 40, step: 1 },
   boardScale: { min: 0.7, max: 1.8, step: 0.05 },
+  deckThickness: { min: 0.5, max: 3, step: 0.1 },
 };
 
 const KEY = "duelingteam.settings";
@@ -32,6 +35,7 @@ export function readSettings(): AppSettings {
     return {
       boardTilt: num("boardTilt", parsed.boardTilt),
       boardScale: num("boardScale", parsed.boardScale),
+      deckThickness: num("deckThickness", parsed.deckThickness),
     };
   } catch {
     return { ...DEFAULTS };
