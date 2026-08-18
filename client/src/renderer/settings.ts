@@ -7,14 +7,20 @@ export interface AppSettings {
   boardScale: number;
   /** Deck-stack height multiplier. 1 = physically exact card thickness. */
   deckThickness: number;
+  /** Horizontal nudge of the field, in px. 0 = centred; negative = left. */
+  boardShiftX: number;
+  /** Vertical nudge of the field, in px. 0 = centred; negative = up. */
+  boardShiftY: number;
 }
 
-export const DEFAULTS: AppSettings = { boardTilt: 16, boardScale: 1.15, deckThickness: 1.6 };
+export const DEFAULTS: AppSettings = { boardTilt: 16, boardScale: 1.15, deckThickness: 1.6, boardShiftX: 0, boardShiftY: 0 };
 
 export const LIMITS: Record<keyof AppSettings, { min: number; max: number; step: number }> = {
-  boardTilt: { min: 0, max: 40, step: 1 },
+  boardTilt: { min: 0, max: 90, step: 1 },
   boardScale: { min: 0.7, max: 1.8, step: 0.05 },
   deckThickness: { min: 0.5, max: 3, step: 0.1 },
+  boardShiftX: { min: -500, max: 500, step: 5 },
+  boardShiftY: { min: -500, max: 500, step: 5 },
 };
 
 const KEY = "duelingteam.settings";
@@ -36,6 +42,8 @@ export function readSettings(): AppSettings {
       boardTilt: num("boardTilt", parsed.boardTilt),
       boardScale: num("boardScale", parsed.boardScale),
       deckThickness: num("deckThickness", parsed.deckThickness),
+      boardShiftX: num("boardShiftX", parsed.boardShiftX),
+      boardShiftY: num("boardShiftY", parsed.boardShiftY),
     };
   } catch {
     return { ...DEFAULTS };

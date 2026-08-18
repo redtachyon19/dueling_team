@@ -114,8 +114,20 @@ export function Settings(): JSX.Element {
           <Slider
             setting="boardTilt"
             label="Board tilt"
-            hint="How far the field leans away from you. 0° is flat top-down; higher angles give it more depth."
+            hint="How far the field leans away from you. 0° is flat top-down; 90° is fully edge-on."
             format={(v) => `${v}°`}
+          />
+          <Slider
+            setting="boardShiftX"
+            label="Board position — horizontal"
+            hint="Nudges the field left or right within the window. 0 keeps it centred."
+            format={(v) => `${v > 0 ? "+" : ""}${v} px`}
+          />
+          <Slider
+            setting="boardShiftY"
+            label="Board position — vertical"
+            hint="Nudges the field up or down within the window. 0 keeps it centred."
+            format={(v) => `${v > 0 ? "+" : ""}${v} px`}
           />
         </div>
       </section>

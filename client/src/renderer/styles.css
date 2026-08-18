@@ -1045,8 +1045,27 @@ h1 {
   --card-w: calc(var(--card-h) * 0.686);
   /* On the root, not .dhand — the browse bar sits a hand's height off the
      bottom and needs to read this too. */
-  --hand-h: calc(var(--card-h) * 1.18);
-  --hand-w: calc(var(--card-w) * 1.18);
+  /* Hand card size, following the board's perspective without measuring it.
+   *
+   * A card on the mat renders bigger the closer its row is to the camera, and
+   * that magnification grows with --tilt; at 0deg there is no depth and every
+   * row is identical. Measuring the tilted field to copy those sizes is a dead
+   * end — Chromium freezes getBoundingClientRect on a perspective subtree when
+   * --tilt changes in place (the paint updates, the rects do not), so a measured
+   * hand goes stale the moment the tilt slider moves. A width calc has no such
+   * problem, so the magnification is reproduced analytically instead:
+   *   your hand (near, comes toward the camera): 1 + sin(tilt) * 0.21
+   *   opponent (across the table, recedes away):  1 - sin(tilt) * 0.32
+   * Your hand is the closest thing on screen so it grows with tilt; the
+   * opponent's floats above the far edge of the mat — the farthest thing from
+   * the camera — so it shrinks. Both are linear in sin(tilt) and collapse to
+   * exactly 1 at 0deg, where there is no depth: both hands then match each other
+   * and the field, no parallax. --field-scale is folded in because the mat
+   * scales every card on the board by it and the hands sit outside the mat. */
+  --hand-w: calc(var(--card-w) * var(--field-scale, 1) * (1 + sin(var(--tilt, 0deg)) * 0.21));
+  --hand-h: calc(var(--card-h) * var(--field-scale, 1) * (1 + sin(var(--tilt, 0deg)) * 0.21));
+  --opp-hand-w: calc(var(--card-w) * var(--field-scale, 1) * (1 - sin(var(--tilt, 0deg)) * 0.32));
+  --opp-hand-h: calc(var(--card-h) * var(--field-scale, 1) * (1 - sin(var(--tilt, 0deg)) * 0.32));
   display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 8px;
   overflow: hidden; /* the bar stays put; the field clips instead of scrolling it off */
 }
@@ -1097,8 +1116,12 @@ h1 {
   /* Measured: rotateX(+25deg) renders the top edge at 380px and the bottom at
      422px, i.e. positive tilts the far (opponent) edge away. */
   /* One uniform scale on the container: every zone, card, pile and label inside
-     grows by exactly the same factor. */
-  transform: rotateX(var(--tilt, 16deg)) scale(var(--field-scale, 1));
+     grows by exactly the same factor. --shift-x/y (Settings) nudge the field
+     within the window; they come first so the offset is in flat screen space,
+     unaffected by the tilt and scale that follow. */
+  transform:
+    translate(var(--shift-x, 0px), var(--shift-y, 0px))
+    rotateX(var(--tilt, 16deg)) scale(var(--field-scale, 1));
   transform-style: preserve-3d;
   transition: transform 220ms ease;
 }
@@ -1332,12 +1355,15 @@ h1 {
    default --card-h/--card-w, so they match the field cards in size. */
 .dhand--opp {
   top: 0; bottom: auto;
-  height: calc(var(--card-h) * 0.82);
+  height: var(--opp-hand-h);
   align-items: flex-start;
   opacity: 0.92;
 }
+/* Follows the FAR edge's gentler magnification, as your hand follows the near
+   edge — so the two differ by exactly the board's depth and match at 0deg. */
 .dhand--opp .dhand__slot {
-  width: calc(var(--card-w) * 0.82); height: calc(var(--card-h) * 0.82);
+  width: var(--opp-hand-w);
+  height: var(--opp-hand-h);
 }
 .dhand--opp .dhand__slot { cursor: default; }
 /* The 180° turn flips the base hover (translateY(-20px)) so it lifts the card
@@ -1358,20 +1384,69 @@ h1 {
      enough that letting go settles instead of snapping. */
   transition: transform 90ms ease-out;
   transform: perspective(760px) rotateX(var(--tilt-rx, 0deg)) rotateY(var(--tilt-ry, 0deg));
+  /* For the flip. The perspective() above is part of this element's own
+     transform and does not reach its children; the property does. */
+  perspective: 1000px;
 }
-/* Drawn card: flies from the deck into its hand slot. `backwards` holds it at
-   the deck for its stagger delay, so the five opening cards arrive one by one
-   instead of all popping at once. */
+/* Drawn card: slides off the top of the deck face-down, then turns over on its
+   way into your hand.
+ *
+ * Two paired animations rather than one, because the travel and the turn are on
+ * different clocks: the card is still lying on the deck for the first beat, and
+ * finishes turning just before it lands rather than spinning the whole way.
+ * `backwards` holds it at the deck through its stagger delay, so the five
+ * opening cards arrive one by one instead of all popping at once. */
 @keyframes hand-draw {
-  from { transform: translate(var(--draw-dx, 0), var(--draw-dy, 0)) scale(0.7) rotate(-10deg); opacity: 0; }
-  35%  { opacity: 1; }
-  to   { transform: translate(0, 0) scale(1) rotate(0deg); opacity: 1; }
+  /* Exactly on top of the deck: same centre, same rendered size, so the first
+     frame is indistinguishable from the pile's top card. --draw-sx/sy are
+     measured from that card, which is why the two axes differ — the mat's tilt
+     foreshortens its height but not its width. */
+  0% {
+    transform: translate(var(--draw-dx, 0px), var(--draw-dy, 0px))
+      scale(var(--draw-sx, 0.8), var(--draw-sy, 0.8)) rotate(0deg);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
+  }
+  /* Pushed clear of the stack. Still the deck's size and still in its plane —
+     it has slid, not lifted. */
+  24% {
+    transform: translate(calc(var(--draw-dx, 0px) * 0.86), calc(var(--draw-dy, 0px) * 0.86))
+      scale(var(--draw-sx, 0.8), var(--draw-sy, 0.8)) rotate(-4deg);
+    animation-timing-function: cubic-bezier(0.38, 0.18, 0.25, 1);
+  }
+  /* In the hand: flat to the screen, so both axes reach 1. */
+  100% { transform: translate(0, 0) scale(1, 1) rotate(0deg); }
+}
+@keyframes hand-draw-turn {
+  0%, 24% {
+    transform: rotateY(180deg);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  88%, 100% { transform: rotateY(0deg); }
 }
 .dhand__slot.is-drawing {
-  animation: hand-draw 400ms cubic-bezier(0.22, 0.85, 0.3, 1) backwards;
+  animation: hand-draw 520ms linear backwards;
   animation-delay: var(--draw-delay, 0ms);
   z-index: 40;
 }
+/* Only your own draws turn over. The opponent's cards are face-down before and
+   after, so spinning them would just be motion with nothing to reveal. */
+.dhand:not(.dhand--opp) .dhand__slot.is-drawing .dhand__flip {
+  animation: hand-draw-turn 520ms linear backwards;
+  animation-delay: var(--draw-delay, 0ms);
+}
+/* The two faces of a hand card. Flat and inert except during a draw, but always
+   present: mounting the back face only for the flip would swap the DOM out from
+   under a running animation. */
+.dhand__flip {
+  position: relative;
+  width: 100%; height: 100%;
+  transform-style: preserve-3d;
+}
+.dhand__face {
+  position: absolute; inset: 0;
+  backface-visibility: hidden;
+}
+.dhand__face--back { transform: rotateY(180deg); }
 
 /* Card is on the cursor: leave its gap in the hand but don't draw it twice. */
 .dhand__slot.is-lifted { opacity: 0; }
@@ -1419,10 +1494,34 @@ h1 {
   from { transform: scale(1.04); opacity: 0.95; }
   to   { transform: scale(1); opacity: 1; }
 }
+/* Sized to a HAND card, not a field card: the ghost replaces the card you just
+   picked up, so anything else makes it jump the moment you start dragging.
+   Over a valid zone --fit-sx/sy take it to that zone's rendered card geometry —
+   per-axis, because the mat foreshortens height more than width, and different
+   per row, which is why it is measured rather than a single number. */
+/* The ghost's own perspective, matched to the mat's declared 1200px (the board's
+   own perspective lives on an ancestor this fixed element is not under). The
+   origin is nudged horizontally by --fit-ox so a card off to one side skews the
+   same way the field does — the left/right half of the parallax that a centred
+   perspective() cannot express. */
+.ddrag__persp {
+  perspective: 1200px;
+  perspective-origin: calc(50% + var(--fit-ox, 0px)) 50%;
+  transition: perspective-origin 140ms cubic-bezier(0.22, 0.8, 0.25, 1);
+}
 .ddrag__card {
-  width: var(--card-w); height: var(--card-h);
+  width: var(--hand-w); height: var(--hand-h);
   filter: drop-shadow(0 8px 14px #000a);
-  opacity: 0.92; transform: scale(1.04);
+  opacity: 0.92;
+  /* Over the field the ghost leans into the board's perspective: rotateX(tilt)
+     supplies the foreshortening and trapezoidal lean the real zones get, the
+     offset origin above adds the sideways skew, and --fit-scale matches its
+     width to a card at that depth. Off the field all three fall back to a flat,
+     slightly-lifted card. */
+  transform:
+    rotateX(var(--fit-tilt, 0deg))
+    scale(var(--fit-scale, 1.04));
+  transition: transform 140ms cubic-bezier(0.22, 0.8, 0.25, 1);
   outline: 2px solid transparent; border-radius: 6px;
 }
 .ddrag__card.is-valid { outline-color: #5cf; }

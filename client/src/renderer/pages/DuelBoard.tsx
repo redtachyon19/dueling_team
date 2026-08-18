@@ -21,15 +21,61 @@ const PHASES: { key: DuelPhase; label: string }[] = [
 ];
 
 type Mods = { shift: boolean; meta: boolean; ctrl: boolean };
-type DragState = { seq: number; code: number | null; isMonster: boolean; x: number; y: number; valid: boolean; mods: Mods; hint: string; overKey: string | null };
+type DragState = { seq: number; code: number | null; isMonster: boolean; x: number; y: number; valid: boolean; mods: Mods; hint: string; overKey: string | null; fit: { scale: number; tilt: number; ox: number } | null };
 
 const readMods = (e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }): Mods =>
   ({ shift: e.shiftKey, meta: e.metaKey, ctrl: e.ctrlKey });
 
-function zoneAtPoint(x: number, y: number): { loc: string | undefined; seq: number } {
+function zoneAtPoint(x: number, y: number): { loc: string | undefined; seq: number; zone: HTMLElement | null } {
   const el = document.elementFromPoint(x, y) as HTMLElement | null;
   const z = el?.closest("[data-loc]") as HTMLElement | null;
-  return { loc: z?.dataset.loc, seq: z ? Number(z.dataset.seq) : NaN };
+  return { loc: z?.dataset.loc, seq: z ? Number(z.dataset.seq) : NaN, zone: z };
+}
+
+/** How the drag ghost should sit when the cursor is over the playfield: matched
+ *  to the local card size AND leaned back into the board's perspective, so it
+ *  reads as a card lying on the mat rather than a flat card that merely shrank.
+ *
+ *  Returns null when the cursor is not over the mat — the ghost then stays flat,
+ *  the way a card held in front of you looks. Applies over the WHOLE field, not
+ *  just legal drop zones: the tilt is about where the card is in space, which has
+ *  nothing to do with whether the drop is allowed.
+ *
+ *  `scale` matches the ghost's width to a field card at that depth; the height
+ *  foreshortening and the trapezoidal lean both come from rotateX(tilt) in CSS,
+ *  exactly as they do for the real zones. The nearest zone supplies the local
+ *  size so the ghost tracks near/far depth as it moves up and down the board;
+ *  offsetWidth is used for the card:zone ratio so a Set rotation can't skew it. */
+function fieldFit(x: number, y: number, tiltDeg: number): { scale: number; tilt: number; ox: number } | null {
+  const mat = document.querySelector<HTMLElement>(".dfield__mat");
+  const handSlot = document.querySelector<HTMLElement>(".dhandrow .dhand__slot");
+  if (!mat || !handSlot) return null;
+  const m = mat.getBoundingClientRect();
+  if (x < m.left || x > m.right || y < m.top || y > m.bottom) return null;
+  const hand = handSlot.getBoundingClientRect();
+  if (!hand.width) return null;
+  const zones = Array.from(document.querySelectorAll<HTMLElement>(".dzone--mon, .dzone--st, .dzone--fieldz"));
+  let best: HTMLElement | null = null;
+  let bestD = Infinity;
+  for (const z of zones) {
+    const r = z.getBoundingClientRect();
+    const d = (r.left + r.width / 2 - x) ** 2 + (r.top + r.height / 2 - y) ** 2;
+    if (d < bestD) { bestD = d; best = z; }
+  }
+  const slot = best?.querySelector<HTMLElement>(".dslot");
+  if (!best || !slot || !best.offsetWidth) return null;
+  const r = best.getBoundingClientRect();
+  const cardW = r.width * (slot.offsetWidth / best.offsetWidth);
+  // Horizontal parallax: the board's vanishing point sits at the field's
+  // centre (perspective-origin 50%), so a card left or right of it is seen at
+  // an angle and skews sideways. Feeding that same offset into the ghost's
+  // perspective-origin reproduces the skew — zero dead centre, growing toward
+  // the edges, flipping sign across the middle. It rides the cursor, so the
+  // cursor x is the ghost's centre.
+  const field = document.querySelector<HTMLElement>(".duelboard__field");
+  const fr = field?.getBoundingClientRect();
+  const ox = fr ? fr.left + fr.width / 2 - x : 0;
+  return { scale: cardW / hand.width, tilt: tiltDeg, ox };
 }
 
 function gestureOption(opts: DuelOption[], isMonster: boolean, dropLoc: string | undefined, mods: Mods): DuelOption | undefined {
@@ -132,7 +178,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
   const [logOpen, setLogOpen] = useState(false);
   const [placing, setPlacing] = useState<{ promptId: number; optionId: string; kind: "monster" | "spell" } | null>(null);
 
-  const { boardTilt, boardScale, deckThickness } = useSettings();
+  const { boardTilt, boardScale, deckThickness, boardShiftX, boardShiftY } = useSettings();
 
   // The board stays mounted while another tab is on screen, so every global key
   // handler below must ignore keystrokes meant for that tab. A ref keeps the
@@ -524,7 +570,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
     const isMonster = code != null && /Monster/i.test(cardsRef.current.get(code)?.type ?? "");
     const start = { x: e.clientX, y: e.clientY };
     const handOpts = prompt?.kind === "idle" ? prompt.options.filter((o) => o.loc === "hand" && o.seq === seq) : [];
-    dragRef.current = { seq, code, isMonster, x: start.x, y: start.y, valid: false, mods: readMods(e), hint: dragHint(handOpts, isMonster, readMods(e)), overKey: null };
+    dragRef.current = { seq, code, isMonster, x: start.x, y: start.y, valid: false, mods: readMods(e), hint: dragHint(handOpts, isMonster, readMods(e)), overKey: null, fit: null };
     let active = false;
 
     const onMove = (ev: PointerEvent) => {
@@ -542,6 +588,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
         ...ds, x: ev.clientX, y: ev.clientY, valid, mods,
         hint: dragHint(handOpts, ds.isMonster, mods),
         overKey: valid && loc && Number.isFinite(overSeq) ? `${loc}:${overSeq}` : null,
+        fit: fieldFit(ev.clientX, ev.clientY, boardTilt),
       };
       dragRef.current = next;
       setDrag(next);
@@ -562,6 +609,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
         valid,
         hint: dragHint(handOpts, ds.isMonster, mods),
         overKey: valid && loc && Number.isFinite(overSeq) ? `${loc}:${overSeq}` : null,
+        fit: fieldFit(ds.x, ds.y, boardTilt),
       };
       dragRef.current = next;
       if (active) setDrag(next);
@@ -632,6 +680,8 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
         "--tilt": `${boardTilt}deg`,
         "--field-scale": boardScale,
         "--stack-mult": deckThickness,
+        "--shift-x": `${boardShiftX}px`,
+        "--shift-y": `${boardShiftY}px`,
         // A rotated (set / defense) card is --card-h wide, 16px short of the
         // zone. Scaling by this makes it span the cell exactly, so two set
         // monsters in adjacent zones touch. CSS can't divide length by length,
@@ -662,9 +712,24 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
         </div>
       )}
       {drag && drag.code != null && (
-        <div className="ddrag" style={{ left: drag.x, top: drag.y }}>
-          <div className={`ddrag__card${drag.valid ? " is-valid" : ""}`}>
-            <CardArt code={drag.code} alt="" />
+        <div
+          className="ddrag"
+          style={{
+            left: drag.x,
+            top: drag.y,
+            ...(drag.fit
+              ? {
+                  "--fit-scale": drag.fit.scale.toFixed(4),
+                  "--fit-tilt": `${drag.fit.tilt}deg`,
+                  "--fit-ox": `${drag.fit.ox.toFixed(1)}px`,
+                }
+              : {}),
+          } as CSSProperties}
+        >
+          <div className="ddrag__persp">
+            <div className={`ddrag__card${drag.valid ? " is-valid" : ""}`}>
+              <CardArt code={drag.code} alt="" />
+            </div>
           </div>
           <span className={`ddrag__hint${drag.valid ? " is-valid" : ""}`}>{drag.hint}</span>
         </div>
@@ -1058,9 +1123,10 @@ function CardSlot({ card, kind }: { card: DuelCard | null; kind?: string }): JSX
   );
 }
 
-/** How far apart consecutive draws fire, and how long each card is in flight. */
+/** How far apart consecutive draws fire, and how long each card is in flight.
+ *  DRAW_FLIGHT_MS must match the `hand-draw` duration in the stylesheet. */
 const DRAW_STAGGER_MS = 95;
-const DRAW_FLIGHT_MS = 400;
+const DRAW_FLIGHT_MS = 520;
 /** Going home is tighter than dealing out, so a big graveyard doesn't drag. */
 const EXIT_STAGGER_MS = 40;
 const EXIT_FLIGHT_MS = 320;
@@ -1068,7 +1134,17 @@ const EXIT_FLIGHT_MS = 320;
 export const exitDurationMs = (count: number): number =>
   EXIT_FLIGHT_MS + Math.max(0, count - 1) * EXIT_STAGGER_MS + 40;
 
-type DrawAnim = { dx: number; dy: number; delay: number };
+type DrawAnim = { dx: number; dy: number; sx: number; sy: number; delay: number };
+
+/** The card inside a pile, not the square cell around it.
+ *
+ *  A `.dzone` is `--zone` square; the card in it is `--card-w` x `--card-h`. A
+ *  draw that measures the cell starts at the wrong size, and the gap widens with
+ *  tilt because the mat's rotateX foreshortens the card but not our arithmetic. */
+const originCard = (selector: string): Element | null => {
+  const zone = document.querySelector(selector);
+  return zone?.querySelector(".dslot") ?? zone;
+};
 
 function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null, browse = false, onCardClick, tagOf, flyFrom, closing = false, collapsed = false, collapsedSide = "left", collapsedTitle, avoidSide }: {
   cards: DuelCard[];
@@ -1107,8 +1183,11 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
     const grew = n - prevCount.current;
     prevCount.current = n;
     if (collapsed || grew <= 0 || !rootRef.current) return;
-    const origin = document.querySelector(flyFrom ?? (opponent ? '[data-deck="opp"]' : '[data-deck="local"]'));
+    const origin = originCard(flyFrom ?? (opponent ? '[data-deck="opp"]' : '[data-deck="local"]'));
     if (!origin) return;
+    // The rect of a tilted element is the bounding box of the rendered quad, so
+    // this already carries the mat's scale and its perspective foreshortening —
+    // no need to know the tilt angle, and it stays right when the user changes it.
     const d = origin.getBoundingClientRect();
     const slots = rootRef.current.querySelectorAll<HTMLElement>(".dhand__slot");
     const next = new Map<number, DrawAnim>();
@@ -1120,6 +1199,10 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
       next.set(i, {
         dx: d.left + d.width / 2 - (r.left + r.width / 2),
         dy: d.top + d.height / 2 - (r.top + r.height / 2),
+        // Separate axes: the mat squashes the card vertically, so a single
+        // uniform scale that matched its width would stand too tall.
+        sx: d.width / r.width,
+        sy: d.height / r.height,
         delay: (i - first) * DRAW_STAGGER_MS,
       });
     }
@@ -1142,7 +1225,7 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!closing || !root) return;
-    const origin = document.querySelector(flyFrom ?? '[data-deck="local"]');
+    const origin = originCard(flyFrom ?? '[data-deck="local"]');
     const o = origin?.getBoundingClientRect();
     // Measure every card BEFORE pinning any of them: taking one out of flow
     // reflows the row and shifts the rest, so measuring inside the loop reads
@@ -1160,11 +1243,15 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
       if (!o) return;
       const dx = o.left + o.width / 2 - (r.left + r.width / 2);
       const dy = o.top + o.height / 2 - (r.top + r.height / 2);
+      // Same reasoning as the draw: land at the pile's real rendered size rather
+      // than a guessed shrink, and per-axis because the mat foreshortens height.
+      const sx = (o.width / r.width).toFixed(4);
+      const sy = (o.height / r.height).toFixed(4);
       el.animate(
         [
-          { transform: "translate(0, 0) scale(1) rotate(0deg)", opacity: 1, offset: 0 },
+          { transform: "translate(0, 0) scale(1, 1) rotate(0deg)", opacity: 1, offset: 0 },
           { opacity: 1, offset: 0.88 },
-          { transform: `translate(${dx}px, ${dy}px) scale(0.72) rotate(-8deg)`, opacity: 0, offset: 1 },
+          { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy}) rotate(0deg)`, opacity: 0, offset: 1 },
         ],
         {
           duration: EXIT_FLIGHT_MS,
@@ -1227,6 +1314,8 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
             style={draw ? ({
               "--draw-dx": `${draw.dx}px`,
               "--draw-dy": `${draw.dy}px`,
+              "--draw-sx": `${draw.sx.toFixed(4)}`,
+              "--draw-sy": `${draw.sy.toFixed(4)}`,
               "--draw-delay": `${closing ? i * EXIT_STAGGER_MS : draw.delay}ms`,
             } as CSSProperties) : undefined}
             {...tiltProps}
@@ -1237,7 +1326,14 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
             onClick={onCardClick ? (e) => onCardClick(c, e) : undefined}
           >
             <div className="dhand__card">
-              <CardArt code={c.code} alt={nameOf(c.code)} />
+              <div className="dhand__flip">
+                <div className="dhand__face">
+                  <CardArt code={c.code} alt={nameOf(c.code)} />
+                </div>
+                <div className="dhand__face dhand__face--back">
+                  <img className="dcard__art" src={cardBack} alt="" />
+                </div>
+              </div>
               {tag && <span className="dhand__tag">{tag}</span>}
             </div>
           </div>
