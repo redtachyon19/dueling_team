@@ -318,9 +318,17 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  overflow-y: auto;
+  /* NOT overflow-y:auto — per spec that computes overflow-x to auto as well, so
+     the panel clipped horizontally and sliced the corner off the tilted card.
+     The text block below scrolls instead, leaving the art free to lean out. */
+  overflow: visible;
+  min-height: 0;
   border-right: 1px solid #2a2a2a;
-  padding-right: 16px;
+  /* Left slack matters: the panel butts against .page / .duelboard, both of
+     which clip, so a card flush to the edge gets its corner shaved the moment it
+     leans left. The card is 294px, so 294 + 14 + 12 stays inside the 320 width. */
+  padding-left: 14px;
+  padding-right: 12px;
 }
 
 .cards__viewer-art {
@@ -338,6 +346,9 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .cards__viewer-name {
   font-size: 16px;
@@ -683,8 +694,16 @@ h1 {
 .cards__viewer-art-wrap:hover .cards__viewer-art {
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
 }
-/* Cursor-tracked specular sweep, matching the hand's. */
-.cards__viewer-art-wrap::after {
+/* Cursor-tracked specular sweep, matching the hand's.
+ *
+ * It lives on the FACES, not the wrapper. On the wrapper it did not rotate with
+ * the flip, so at the halfway point — where the card is edge-on and invisible —
+ * a full-size lit rectangle was still being painted, showing as a glowing bar
+ * across the middle. On the faces it turns with the card and is backface-culled
+ * with it. The `:not(:has())` case keeps the empty-state card back covered,
+ * since that one has no faces to hang it on. */
+.viewer__face::after,
+.cards__viewer-art-wrap:not(:has(.viewer__flip))::after {
   content: "";
   position: absolute; inset: 0;
   opacity: 0;
@@ -697,8 +716,10 @@ h1 {
   );
   mix-blend-mode: screen;
   pointer-events: none;
+  backface-visibility: hidden;
 }
-.cards__viewer-art-wrap:hover::after { opacity: 1; }
+.cards__viewer-art-wrap:hover .viewer__face::after,
+.cards__viewer-art-wrap:not(:has(.viewer__flip)):hover::after { opacity: 1; }
 .viewer__pin {
   position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 4px;
   background: #1a1407cc; border: 1px solid #f0c14b; color: #f0c14b;
@@ -1022,6 +1043,10 @@ h1 {
      around — and so a rotated (defense/set) card still clears the edges. */
   --card-h: calc(var(--zone) - 16px);
   --card-w: calc(var(--card-h) * 0.686);
+  /* On the root, not .dhand — the browse bar sits a hand's height off the
+     bottom and needs to read this too. */
+  --hand-h: calc(var(--card-h) * 1.18);
+  --hand-w: calc(var(--card-w) * 1.18);
   display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 8px;
   overflow: hidden; /* the bar stays put; the field clips instead of scrolling it off */
 }
@@ -1296,8 +1321,7 @@ h1 {
   display: flex; justify-content: center; align-items: flex-end; gap: 6px;
   height: var(--hand-h);
   pointer-events: none;
-  --hand-h: calc(var(--card-h) * 1.18);
-  --hand-w: calc(var(--card-w) * 1.18);
+  flex-wrap: nowrap;
 }
 .dhand__slot { pointer-events: auto; }
 .dhand__empty { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #667; font-size: 12px; }
@@ -1599,3 +1623,84 @@ h1 {
 .dmenu__name { color: #8ab4ff; font-style: normal; font-size: 11px; }
 
 .dprompt__hint { font-size: 11px; color: #8a9a8c; flex-shrink: 0; }
+
+/* --- Pile browsing ---------------------------------------------------------
+   Clicking a graveyard / banished / extra deck collapses your hand and shows
+   that pile in the SAME strip, using the same Hand component and .dhand styles.
+   Only this small bar is new. */
+.dbrowse__bar {
+  position: absolute; left: 0; right: 0; bottom: calc(var(--hand-h) + 6px);
+  z-index: 7;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  pointer-events: none;
+}
+.dbrowse__bar > * { pointer-events: auto; }
+.dbrowse__title { font-size: 13px; font-weight: 700; color: #e8eef7; text-shadow: 0 1px 4px #000; }
+.dbrowse__count {
+  font-size: 11px; font-weight: 700; color: #cfe0ff;
+  background: #223049; border: 1px solid #35486a; border-radius: 10px; padding: 0 7px;
+  font-variant-numeric: tabular-nums;
+}
+.dbrowse__hint { font-size: 11px; color: #8fa3bd; }
+.dbrowse__close { font-size: 11px; padding: 2px 10px; }
+
+/* Cards going home: the exact reverse of hand-draw, reusing the offsets measured
+   on the way in so they land back on the pile they came from. */
+/* Your hand while a pile is open: the cards keep their size and collapse onto
+   each other, leaving a sliver of every card so the depth of the stack is still
+   readable. It slides to whichever side the pile ISN'T on. */
+.dhand--collapsed {
+  z-index: 5;
+  /* Clickable as a whole: reaching for your hand is how you put a pile back.
+     The individual cards stay inert — `actionable` is empty while browsing, so
+     no drag can start from here. */
+  pointer-events: auto;
+  cursor: pointer;
+  gap: 0;
+  opacity: 0.9;
+  transition: opacity 160ms ease;
+}
+.dhand--collapsed:hover { opacity: 1; }
+/* Your hand and a browsed pile are flex siblings in this row, so they physically
+   cannot overlap — no reserved padding to guess at. The row also decides which
+   side the hand parks on, via order. */
+.dhandrow {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
+  display: flex; align-items: flex-end; gap: 14px;
+  pointer-events: none;
+}
+.dhandrow > * { pointer-events: auto; }
+.dhandrow .dhand { position: static; flex: 1 1 auto; min-width: 0; }
+/* Collapsed, the hand takes only the width it needs and the pile gets the rest. */
+.dhandrow .dhand--collapsed { flex: 0 0 auto; }
+.dhandrow.hand-right .dhand--collapsed { order: 2; }
+.dhandrow.hand-right .dhand--avoid-right,
+.dhandrow.hand-left .dhand--avoid-left { order: 1; }
+
+.dhand--collapsed.is-left { justify-content: flex-start; padding-left: 10px; }
+.dhand--collapsed.is-right { justify-content: flex-end; padding-right: 10px; }
+/* 88% overlap — only the leading edge of each card shows. */
+.dhand--collapsed .dhand__slot {
+  margin-right: calc(var(--hand-w) * -0.88);
+}
+.dhand--collapsed .dhand__slot:last-child { margin-right: 0; }
+/* The shadow is what makes the slivers legible as separate cards. */
+.dhand--collapsed .dhand__card {
+  border-radius: 3px;
+  box-shadow: -3px 0 7px rgba(0, 0, 0, 0.65), -1px 0 0 rgba(150, 170, 200, 0.35);
+}
+
+.dbrowse__bar { transition: opacity 200ms ease; }
+.dbrowse__bar.is-closing { opacity: 0; }
+
+/* A browsed pile is not draggable, so the cursor says "look", not "grab". */
+.dhand__slot.is-browse { cursor: default; }
+/* Summonable Extra Deck cards advertise themselves, same green as the pile. */
+.dhand__slot.is-summonable { cursor: pointer; }
+.dhand__slot.is-summonable .dhand__card { filter: drop-shadow(0 0 7px rgba(52, 211, 153, 0.9)); }
+.dhand__tag {
+  position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%);
+  font-size: 9px; font-weight: 700; white-space: nowrap;
+  padding: 1px 7px; border-radius: 9px;
+  background: #0f3f31; color: #6ee7b7; border: 1px solid #34d399;
+}

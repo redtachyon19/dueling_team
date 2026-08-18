@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { CardData, DuelCard, DuelDifficulty, DuelEvent, DuelFormat, DuelOption, DuelPhase, DuelPrompt, DuelResponse, DuelState, DuelUpdate, PromptCard } from "@duel/shared";
 import cardBack from "../../../../ui/assets/sleeves/original_card_sleeve.png";
 import { toLogEntries } from "../cards/duel-log.ts";
@@ -77,8 +77,52 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
   const [banner, setBanner] = useState<{ id: number; text: string; tone: string } | null>(null);
   const bannerSeq = useRef(0);
   const [preview, setPreview] = useState<CardData | null>(null);
-  const [extraOpen, setExtraOpen] = useState(false);
-  const [viewer, setViewer] = useState<{ title: string; cards: DuelCard[] } | null>(null);
+  // When set, the hand area shows this pile instead of your hand — same layout
+  // and the same Hand component, just not draggable.
+  const [browse, setBrowse] = useState<
+    {
+      title: string;
+      cards: DuelCard[];
+      from: string;
+      handSide: "left" | "right";
+      /** The pile these cards came out of, so its zone can read as empty while
+       *  you are holding them. It refills exactly as they land back. */
+      pile: { kind: "grave" | "banish" | "extra" | "deck"; owner: 0 | 1 };
+      extra?: boolean;
+    } | null
+  >(null);
+  /**
+   * Which way your hand slides to get out of the way: away from the pile being
+   * opened. The extra deck sits left of the field, so the hand goes right; the
+   * graveyard sits right, so it goes left. Measured rather than hardcoded,
+   * because the opponent's rows are mirrored.
+   */
+  const handSideFor = useCallback((selector: string): "left" | "right" => {
+    const pile = document.querySelector(selector);
+    const play = playElRef.current;
+    if (!pile || !play) return "right";
+    const p = pile.getBoundingClientRect();
+    const r = play.getBoundingClientRect();
+    return p.left + p.width / 2 < r.left + r.width / 2 ? "right" : "left";
+  }, []);
+  const [browseClosing, setBrowseClosing] = useState(false);
+  const browseTimer = useRef<number | null>(null);
+  const browseRef = useRef<typeof browse>(null);
+  browseRef.current = browse;
+  /** Fly the pile back where it came from, then drop it. */
+  const closeBrowse = useCallback(() => {
+    setBrowse((b) => {
+      if (b) setBrowseClosing(true);
+      return b;
+    });
+    if (browseTimer.current) window.clearTimeout(browseTimer.current);
+    const cards = browseRef.current?.cards.length ?? 0;
+    browseTimer.current = window.setTimeout(() => {
+      setBrowse(null);
+      setBrowseClosing(false);
+    }, exitDurationMs(cards));
+  }, []);
+  useEffect(() => () => { if (browseTimer.current) window.clearTimeout(browseTimer.current); }, []);
   const [tips, setTips] = useState(() => { try { return !localStorage.getItem("duel_tips_seen"); } catch { return false; } });
   const [coin, setCoin] = useState<{ id: number; results: number[] } | null>(null);
   const coinSeq = useRef(0);
@@ -99,11 +143,13 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
 
   const [zonePx, setZonePx] = useState(120);
   const roRef = useRef<ResizeObserver | null>(null);
+  const playElRef = useRef<HTMLDivElement | null>(null);
   // Rows the mat actually draws (Genesys has no Extra Monster Zone row) plus the
   // two side headers. The hands float over the field, so they cost nothing here.
   const rowUnits = format === "genesys" ? 4.7 : 5.7;
   const playRefCb = useCallback((el: HTMLDivElement | null) => {
     roRef.current?.disconnect();
+    playElRef.current = el;
     if (!el) return;
     const measure = () => {
       const P = el.clientHeight;
@@ -250,7 +296,11 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
       const me = state?.players[0];
       if (!me) return;
       e.preventDefault();
-      setViewer((v) => (v && v.title === "Your Graveyard" ? null : { title: "Your Graveyard", cards: me.grave }));
+      if (browse && browse.title === "Your Graveyard") closeBrowse();
+      else {
+        const from = '[data-pile="grave"][data-owner="0"]';
+        setBrowse({ title: "Your Graveyard", cards: me.grave, from, handSide: handSideFor(from), pile: { kind: "grave", owner: 0 } });
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -294,15 +344,14 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
       if (e.key !== "Escape") return;
       if (placing) { e.preventDefault(); setPlacing(null); return; }
       if (menu) { e.preventDefault(); setMenu(null); return; }
-      if (viewer) { e.preventDefault(); setViewer(null); return; }
+      if (browse) { e.preventDefault(); closeBrowse(); return; }
       if (logOpen) { e.preventDefault(); setLogOpen(false); return; }
-      if (extraOpen) { e.preventDefault(); setExtraOpen(false); return; }
       if (prompt?.cancelable) { e.preventDefault(); respond({ promptId: prompt.id, type: "cancel" }); return; }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placing, menu, viewer, extraOpen, logOpen, prompt?.id, prompt?.cancelable]);
+  }, [placing, menu, browse, closeBrowse, logOpen, prompt?.id, prompt?.cancelable]);
 
   const onBoardClick = (e: ReactMouseEvent) => {
     if (suppressClickRef.current) { suppressClickRef.current = false; return; }
@@ -316,14 +365,36 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
       setPlacing(null);
       return;
     }
-    if ((e.target as HTMLElement).closest('[data-extra="local"]')) { setExtraOpen(true); return; }
+    if (browse) {
+      const t = e.target as HTMLElement;
+      // Reaching for your own hand puts the pile back and expands it again.
+      if (t.closest(".dhand--collapsed")) { closeBrowse(); return; }
+      // So does anything outside the strip (the pile itself is handled below).
+      if (!t.closest(".dhand") && !t.closest(".dbrowse__bar") && !t.closest("[data-pile]") && !t.closest("[data-extra]")) {
+        closeBrowse();
+        return;
+      }
+    }
+    if ((e.target as HTMLElement).closest('[data-extra="local"]')) {
+      if (browse?.extra) closeBrowse();
+      else {
+        const from = '[data-extra="local"]';
+        setBrowse({ title: "Extra Deck", cards: me.extra, from, handSide: handSideFor(from), pile: { kind: "extra", owner: 0 }, extra: true });
+      }
+      return;
+    }
     const pileEl = (e.target as HTMLElement).closest("[data-pile]") as HTMLElement | null;
     if (pileEl && state) {
       const kind = pileEl.dataset.pile;
       const owner = (Number(pileEl.dataset.owner) || 0) as 0 | 1;
       const cards = kind === "grave" ? state.players[owner].grave : state.players[owner].banished;
       const whose = owner === 0 ? "Your" : "Opponent's";
-      setViewer({ title: `${whose} ${kind === "grave" ? "Graveyard" : "Banished"}`, cards });
+      const title = `${whose} ${kind === "grave" ? "Graveyard" : "Banished"}`;
+      if (browse && browse.title === title) closeBrowse();
+      else {
+        const from = `[data-pile="${kind}"][data-owner="${owner}"]`;
+        setBrowse({ title, cards, from, handSide: handSideFor(from), pile: { kind: kind as "grave" | "banish", owner } });
+      }
       return;
     }
     if (!prompt) return;
@@ -643,11 +714,11 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
             {banner && <div key={banner.id} className={`dbanner dbanner--${banner.tone}`}>{banner.text}</div>}
             <div className="dfield__mat">
               <div className="dfield__surface" aria-hidden="true" />
-              <PlayerSide who="Opponent" p={opp} flip active={state.turnPlayer === 1} nameOf={nameOf} actionable={EMPTY_SET} targets={EMPTY_SET} />
+              <PlayerSide who="Opponent" p={opp} flip active={state.turnPlayer === 1} nameOf={nameOf} actionable={EMPTY_SET} targets={EMPTY_SET} emptyPile={browse && browse.pile.owner === 1 ? browse.pile.kind : null} />
               {format !== "genesys" && (
                 <ExtraMonsterZones cards={[me.monsters[5] ?? null, me.monsters[6] ?? null]} actionable={actionable} targets={boardTargets} nameOf={nameOf} />
               )}
-              <PlayerSide who="You" p={me} active={state.turnPlayer === 0} nameOf={nameOf} local actionable={actionable} targets={boardTargets} extraReady={extraSummon.size > 0} dropKey={drag ? drag.overKey : null} />
+              <PlayerSide who="You" p={me} active={state.turnPlayer === 0} nameOf={nameOf} local actionable={actionable} targets={boardTargets} extraReady={extraSummon.size > 0} dropKey={drag ? drag.overKey : null} emptyPile={browse && browse.pile.owner === 0 ? browse.pile.kind : null} />
             </div>
             {state.over && (
               <div className="dfield-over">
@@ -670,28 +741,66 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
             {dice && <DiceRoll key={dice.id} results={dice.results} />}
           </div>
 
-          <Hand cards={me.hand} nameOf={nameOf} actionable={actionable} draggingSeq={drag ? drag.seq : flyBack ? flyBack.seq : null} />
+          {/* ONE persistent hand. Opening a pile collapses it aside rather than
+              swapping in a second instance — a fresh mount would re-run the
+              draw animation and the cards would fly in off the deck again.
+              It un-collapses the moment closing STARTS rather than when it
+              finishes, so the hand fans back out while the pile flies home. */}
+          {browse && (
+            <div className={`dbrowse__bar${browseClosing ? " is-closing" : ""}`}>
+              <span className="dbrowse__title">{browse.title}</span>
+              <span className="dbrowse__count">{browse.cards.length}</span>
+              {browse.extra && extraSummon.size > 0 && (
+                <span className="dbrowse__hint">click a glowing card to summon</span>
+              )}
+              <button className="btn dbrowse__close" onClick={closeBrowse}>Close</button>
+            </div>
+          )}
+          {/* Your hand and a browsed pile share one flex row, so the browser
+              guarantees they can never overlap — no reserved padding to get
+              wrong. `hand-left` / `hand-right` just decides the order. */}
+          <div className={`dhandrow${browse ? ` is-browsing hand-${browse.handSide}` : ""}`}>
+            <Hand
+              cards={me.hand}
+              nameOf={nameOf}
+              actionable={browse ? EMPTY_SET : actionable}
+              draggingSeq={browse ? null : drag ? drag.seq : flyBack ? flyBack.seq : null}
+              collapsed={!!browse && !browseClosing}
+              collapsedSide={browse ? browse.handSide : "left"}
+              collapsedTitle="Click to put the cards back and pick your hand up"
+            />
+            {browse && (
+              <Hand
+                key={browse.title}
+                flyFrom={browse.from}
+                closing={browseClosing}
+                cards={browse.cards}
+                nameOf={nameOf}
+                actionable={EMPTY_SET}
+                browse
+                {...(browse.extra
+                  ? {
+                      tagOf: (c: DuelCard) =>
+                        c.code != null && extraSummon.has(c.code)
+                          ? summonVerb(cardsRef.current.get(c.code)?.frameType)
+                          : undefined,
+                      onCardClick: (c: DuelCard, e: ReactMouseEvent<HTMLDivElement>) => {
+                        const opts = c.code != null ? extraSummon.get(c.code) : undefined;
+                        if (!opts || opts.length === 0 || !prompt) return;
+                        const verb = summonVerb(cardsRef.current.get(c.code ?? -1)?.frameType);
+                        const first = opts[0];
+                        const display = opts.length === 1 && first ? [{ ...first, label: verb }] : opts;
+                        closeBrowse();
+                        setMenu({ promptId: prompt.id, options: display, x: e.clientX, y: e.clientY });
+                      },
+                    }
+                  : {})}
+              />
+            )}
+          </div>
         </div>
       </div>
 
-      {extraOpen && (
-        <ExtraDeckOverlay
-          cards={me.extra}
-          summonable={extraSummon}
-          nameOf={nameOf}
-          frameOf={(code) => cardsRef.current.get(code ?? -1)?.frameType}
-          onHover={onHover}
-          onClose={() => setExtraOpen(false)}
-          onSummon={(options, x, y) => {
-            if (!prompt) return;
-            setExtraOpen(false);
-            setMenu({ promptId: prompt.id, options, x, y });
-          }}
-        />
-      )}
-      {viewer && (
-        <CardListOverlay title={viewer.title} cards={viewer.cards} nameOf={nameOf} onHover={onHover} onClose={() => setViewer(null)} />
-      )}
       {logOpen && <DuelLog entries={toLogEntries(logRaw, nameOf, 0)} onClose={() => setLogOpen(false)} />}
       <PromptOverlay
         prompt={prompt}
@@ -763,31 +872,6 @@ function DuelLog({ entries, onClose }: { entries: { id: number; text: string }[]
   );
 }
 
-function CardListOverlay({ title, cards, nameOf, onHover, onClose }: {
-  title: string;
-  cards: DuelCard[];
-  nameOf: (c: number | null | undefined) => string;
-  onHover: (e: ReactMouseEvent) => void;
-  onClose: () => void;
-}): JSX.Element {
-  return (
-    <div className="dprompt-overlay dprompt" onClick={onClose} onMouseOver={onHover}>
-      <div className="dprompt__title">{title} ({cards.length})</div>
-      <div className="dprompt__cards">
-        {cards.length === 0 && <span className="dhand__empty">— empty —</span>}
-        {cards.map((c, i) => (
-          <button key={i} className="dprompt__card" data-code={c.code ?? undefined} title={nameOf(c.code)} onClick={(e) => e.stopPropagation()}>
-            <CardArt code={c.code} alt={nameOf(c.code)} />
-          </button>
-        ))}
-      </div>
-      <div className="dprompt__actions">
-        <button className="btn" onClick={onClose}>Close</button>
-      </div>
-    </div>
-  );
-}
-
 function summonVerb(frameType: string | undefined): string {
   const f = (frameType ?? "").toLowerCase();
   if (f.includes("fusion")) return "Fusion Summon";
@@ -796,55 +880,6 @@ function summonVerb(frameType: string | undefined): string {
   if (f.includes("link")) return "Link Summon";
   if (f.includes("pendulum")) return "Pendulum Summon";
   return "Special Summon";
-}
-
-function ExtraDeckOverlay({ cards, summonable, nameOf, frameOf, onHover, onClose, onSummon }: {
-  cards: DuelCard[];
-  summonable: Map<number, DuelOption[]>;
-  nameOf: (c: number | null | undefined) => string;
-  frameOf: (c: number | null | undefined) => string | undefined;
-  onHover: (e: ReactMouseEvent) => void;
-  onClose: () => void;
-  onSummon: (options: DuelOption[], x: number, y: number) => void;
-}): JSX.Element {
-  const anySummon = cards.some((c) => c.code != null && summonable.has(c.code));
-  return (
-    <div className="dprompt-overlay dprompt" onClick={onClose} onMouseOver={onHover}>
-      <div className="dprompt__title">
-        Extra Deck ({cards.length})
-        {anySummon && <span className="dprompt__hint">  ·  click a glowing card to summon</span>}
-      </div>
-      <div className="dprompt__cards">
-        {cards.length === 0 && <span className="dhand__empty">— empty —</span>}
-        {cards.map((c, i) => {
-          const opts = c.code != null ? summonable.get(c.code) : undefined;
-          const canSummon = !!opts && opts.length > 0;
-          const verb = canSummon ? summonVerb(frameOf(c.code)) : "";
-          return (
-            <button
-              key={i}
-              className={`dprompt__card${canSummon ? " is-summonable" : ""}`}
-              data-code={c.code ?? undefined}
-              title={canSummon ? `${nameOf(c.code)} — ${verb}` : nameOf(c.code)}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!canSummon || !opts) return;
-                const first = opts[0];
-                const display = opts.length === 1 && first ? [{ ...first, label: verb }] : opts;
-                onSummon(display, e.clientX, e.clientY);
-              }}
-            >
-              <CardArt code={c.code} alt={nameOf(c.code)} />
-              {canSummon && <span className="dprompt__cardtag">{verb}</span>}
-            </button>
-          );
-        })}
-      </div>
-      <div className="dprompt__actions">
-        <button className="btn" onClick={onClose}>Close</button>
-      </div>
-    </div>
-  );
 }
 
 function PhaseTrack({ phase }: { phase: DuelPhase }): JSX.Element {
@@ -857,7 +892,7 @@ function PhaseTrack({ phase }: { phase: DuelPhase }): JSX.Element {
   );
 }
 
-function PlayerSide({ who, p, flip, active, local = false, actionable, targets, nameOf, extraReady = false, dropKey = null }: { who: string; p: DuelState["players"][number]; flip?: boolean; active?: boolean; local?: boolean; actionable: Set<string>; targets: Set<string>; nameOf: (c: number | null | undefined) => string; extraReady?: boolean; dropKey?: string | null }): JSX.Element {
+function PlayerSide({ who, p, flip, active, local = false, actionable, targets, nameOf, extraReady = false, dropKey = null, emptyPile = null }: { who: string; p: DuelState["players"][number]; flip?: boolean; active?: boolean; local?: boolean; actionable: Set<string>; targets: Set<string>; nameOf: (c: number | null | undefined) => string; extraReady?: boolean; dropKey?: string | null; emptyPile?: string | null }): JSX.Element {
   const rowCls = `duelboard__row${flip ? " duelboard__row--rev" : ""}`;
   const owner = local ? 0 : 1;
   const monsterRow = (
@@ -865,16 +900,16 @@ function PlayerSide({ who, p, flip, active, local = false, actionable, targets, 
       <div className="dzone-spacer" aria-hidden="true" />
       <FieldZone card={p.field} nameOf={nameOf} local={local} actionable={actionable} />
       <ZoneCells kind="mon" cards={p.monsters.slice(0, 5)} nameOf={nameOf} local={local} actionable={actionable} targets={targets} dropKey={dropKey} />
-      <Pile kind="grave" label="Graveyard" count={p.graveCount} faceCode={p.graveTop} owner={owner} />
-      <Pile kind="banish" label="Banished Zone" count={p.banishCount} owner={owner} />
+      <Pile emptied={emptyPile === "grave"} kind="grave" label="Graveyard" count={p.graveCount} faceCode={p.graveTop} owner={owner} />
+      <Pile emptied={emptyPile === "banish"} kind="banish" label="Banished Zone" count={p.banishCount} owner={owner} />
     </div>
   );
   const spellRow = (
     <div className={rowCls}>
       <div className="dzone-spacer" aria-hidden="true" />
-      <Pile kind="extra" label="Extra Deck" count={p.extraCount} extraLocal={local} summonReady={local && extraReady} />
+      <Pile emptied={emptyPile === "extra"} kind="extra" label="Extra Deck" count={p.extraCount} extraLocal={local} summonReady={local && extraReady} />
       <ZoneCells kind="st" cards={p.spells} nameOf={nameOf} local={local} actionable={actionable} targets={targets} dropKey={dropKey} />
-      <Pile kind="deck" label="Deck" count={p.deckCount} deckLocal={local} />
+      <Pile emptied={emptyPile === "deck"} kind="deck" label="Deck" count={p.deckCount} deckLocal={local} />
       <div className="dzone-spacer" aria-hidden="true" />
     </div>
   );
@@ -969,9 +1004,16 @@ function StackLayers({ count }: { count: number }): JSX.Element | null {
   );
 }
 
-function Pile({ kind, label, count, deckLocal, extraLocal, faceCode, summonReady, owner }: { kind: string; label: string; count: number; deckLocal?: boolean; extraLocal?: boolean; faceCode?: number | null; summonReady?: boolean; owner?: number }): JSX.Element {
+function Pile({ kind, label, count: rawCount, deckLocal, extraLocal, faceCode: rawFace, summonReady, owner, emptied = false }: { kind: string; label: string; count: number; deckLocal?: boolean; extraLocal?: boolean; faceCode?: number | null; summonReady?: boolean; owner?: number; emptied?: boolean }): JSX.Element {
+  // While you're looking through this pile its cards are in the hand strip, so
+  // the zone shows empty until they fly back.
+  const count = emptied ? 0 : rawCount;
+  const faceCode = emptied ? null : rawFace;
   const showCount = count > 0 && kind !== "deck" && kind !== "extra" && kind !== "grave";
-  const viewable = (kind === "grave" || kind === "banish") && count > 0 && owner != null;
+  // Keyed off the REAL count: an emptied pile must keep its data-pile/data-owner
+  // attributes, because the cards in the hand strip fly home by selecting them —
+  // drop the attributes and the return animation has no target to aim at.
+  const viewable = (kind === "grave" || kind === "banish") && rawCount > 0 && owner != null;
   const title =
     kind === "deck" && deckLocal ? `${label}: ${count} — hold to surrender`
     : kind === "extra" && extraLocal ? `${label}: ${count} — click to ${summonReady ? "summon / view" : "view"}`
@@ -1019,10 +1061,38 @@ function CardSlot({ card, kind }: { card: DuelCard | null; kind?: string }): JSX
 /** How far apart consecutive draws fire, and how long each card is in flight. */
 const DRAW_STAGGER_MS = 95;
 const DRAW_FLIGHT_MS = 400;
+/** Going home is tighter than dealing out, so a big graveyard doesn't drag. */
+const EXIT_STAGGER_MS = 40;
+const EXIT_FLIGHT_MS = 320;
+/** Total time before a closing pile can be unmounted. */
+export const exitDurationMs = (count: number): number =>
+  EXIT_FLIGHT_MS + Math.max(0, count - 1) * EXIT_STAGGER_MS + 40;
 
 type DrawAnim = { dx: number; dy: number; delay: number };
 
-function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null }: { cards: DuelCard[]; actionable: Set<string>; nameOf: (c: number | null | undefined) => string; opponent?: boolean; draggingSeq?: number | null }): JSX.Element {
+function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null, browse = false, onCardClick, tagOf, flyFrom, closing = false, collapsed = false, collapsedSide = "left", collapsedTitle, avoidSide }: {
+  cards: DuelCard[];
+  actionable: Set<string>;
+  nameOf: (c: number | null | undefined) => string;
+  opponent?: boolean;
+  draggingSeq?: number | null;
+  /** Showing a pile (graveyard / banished / extra) in the hand's place: same
+   *  layout, but the cards are not draggable into zones. */
+  browse?: boolean;
+  onCardClick?: (card: DuelCard, e: ReactMouseEvent<HTMLDivElement>) => void;
+  tagOf?: (card: DuelCard) => string | undefined;
+  /** Element the cards fly out of. Defaults to your deck (a normal draw); a
+   *  browsed pile passes its own graveyard / banished / extra deck. */
+  flyFrom?: string;
+  /** Playing the exit: cards fly back to `flyFrom` before unmounting. */
+  closing?: boolean;
+  /** Your hand while a pile is being browsed — tucked aside, not interactive. */
+  collapsed?: boolean;
+  collapsedSide?: "left" | "right";
+  collapsedTitle?: string;
+  /** Side the collapsed hand is parked on — the browsed pile keeps clear of it. */
+  avoidSide?: "left" | "right";
+}): JSX.Element {
   const n = cards.length;
 
   // Cards that just entered the hand fly in from the deck instead of appearing.
@@ -1036,10 +1106,10 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null 
   useLayoutEffect(() => {
     const grew = n - prevCount.current;
     prevCount.current = n;
-    if (grew <= 0 || !rootRef.current) return;
-    const deck = document.querySelector(opponent ? '[data-deck="opp"]' : '[data-deck="local"]');
-    if (!deck) return;
-    const d = deck.getBoundingClientRect();
+    if (collapsed || grew <= 0 || !rootRef.current) return;
+    const origin = document.querySelector(flyFrom ?? (opponent ? '[data-deck="opp"]' : '[data-deck="local"]'));
+    if (!origin) return;
+    const d = origin.getBoundingClientRect();
     const slots = rootRef.current.querySelectorAll<HTMLElement>(".dhand__slot");
     const next = new Map<number, DrawAnim>();
     const first = n - grew;
@@ -1058,14 +1128,89 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null 
     const total = DRAW_FLIGHT_MS + (next.size - 1) * DRAW_STAGGER_MS + 60;
     const t = window.setTimeout(() => setDraws(new Map()), total);
     return () => window.clearTimeout(t);
-  }, [n, opponent]);
+  }, [n, opponent, flyFrom, collapsed]);
 
   // Disabled for the opponent's (non-interactive) hand and while dragging, so a
   // card being pulled out doesn't wobble.
-  const tiltProps = opponent || draggingSeq !== null ? {} : cardTilt();
+  const tiltProps = opponent && !browse ? {} : draggingSeq !== null ? {} : cardTilt();
+
+  // Leaving: pin every card where it currently sits, then fly it to the pile.
+  // Pinning matters because the hand expands at the same moment — that reflows
+  // the row and would drag these cards sideways mid-flight, so they'd appear to
+  // launch from the wrong place. Fixed positioning takes them out of that flow,
+  // and the destination is measured live rather than reused from the way in.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!closing || !root) return;
+    const origin = document.querySelector(flyFrom ?? '[data-deck="local"]');
+    const o = origin?.getBoundingClientRect();
+    // Measure every card BEFORE pinning any of them: taking one out of flow
+    // reflows the row and shifts the rest, so measuring inside the loop reads
+    // positions that have already moved.
+    const slots = Array.from(root.querySelectorAll<HTMLElement>(".dhand__slot"));
+    const rects = slots.map((el) => el.getBoundingClientRect());
+    slots.forEach((el, i) => {
+      const r = rects[i]!;
+      el.style.position = "fixed";
+      el.style.left = `${r.left}px`;
+      el.style.top = `${r.top}px`;
+      el.style.width = `${r.width}px`;
+      el.style.height = `${r.height}px`;
+      el.style.margin = "0";
+      if (!o) return;
+      const dx = o.left + o.width / 2 - (r.left + r.width / 2);
+      const dy = o.top + o.height / 2 - (r.top + r.height / 2);
+      el.animate(
+        [
+          { transform: "translate(0, 0) scale(1) rotate(0deg)", opacity: 1, offset: 0 },
+          { opacity: 1, offset: 0.88 },
+          { transform: `translate(${dx}px, ${dy}px) scale(0.72) rotate(-8deg)`, opacity: 0, offset: 1 },
+        ],
+        {
+          duration: EXIT_FLIGHT_MS,
+          delay: i * EXIT_STAGGER_MS,
+          easing: "cubic-bezier(0.4, 0, 0.7, 1)",
+          fill: "forwards",
+        },
+      );
+    });
+  }, [closing, flyFrom]);
+
+  // FLIP. Collapsing changes flex alignment, gap and margins — none of which
+  // the browser can tween, so the cards used to teleport. Measure where each
+  // card was, let the layout change, then animate the difference away.
+  const rectsRef = useRef<DOMRect[]>([]);
+  const wasCollapsed = useRef(collapsed);
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const slots = Array.from(root.querySelectorAll<HTMLElement>(".dhand__slot"));
+    const before = rectsRef.current;
+    const after = slots.map((el) => el.getBoundingClientRect());
+    const toggled = wasCollapsed.current !== collapsed;
+    rectsRef.current = after;
+    wasCollapsed.current = collapsed;
+    if (!toggled || before.length !== slots.length) return;
+    slots.forEach((el, i) => {
+      const p = before[i];
+      const q = after[i];
+      if (!p || !q) return;
+      const dx = p.left - q.left;
+      const dy = p.top - q.top;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+      el.animate(
+        [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }],
+        { duration: 340, easing: "cubic-bezier(0.2, 0.8, 0.25, 1)", composite: "add" },
+      );
+    });
+  }, [collapsed, collapsedSide, n]);
 
   return (
-    <div className={`dhand${opponent ? " dhand--opp" : ""}`} ref={rootRef}>
+    <div
+      className={`dhand${opponent ? " dhand--opp" : ""}${collapsed ? ` dhand--collapsed is-${collapsedSide}` : ""}${avoidSide ? ` dhand--avoid-${avoidSide}` : ""}`}
+      ref={rootRef}
+      {...(collapsed && collapsedTitle ? { title: collapsedTitle } : {})}
+    >
       {n === 0 && <span className="dhand__empty">— empty hand —</span>}
       {cards.map((c, i) => {
         const act = !opponent && actionable.has(`hand:${i}`);
@@ -1073,20 +1218,27 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null 
         // hand — otherwise it reads as a duplicate. The slot keeps its space, so
         // the rest of the hand doesn't shuffle sideways mid-drag.
         const lifted = draggingSeq === i;
-        const draw = draws.get(i);
+        const draw = closing ? undefined : draws.get(i);
+        const tag = browse && tagOf ? tagOf(c) : undefined;
         return (
           <div
             key={i}
-            className={`dhand__slot${act ? " is-actionable" : ""}${lifted ? " is-lifted" : ""}${draw ? " is-drawing" : ""}`}
-            style={draw ? ({ "--draw-dx": `${draw.dx}px`, "--draw-dy": `${draw.dy}px`, "--draw-delay": `${draw.delay}ms` } as CSSProperties) : undefined}
+            className={`dhand__slot${act ? " is-actionable" : ""}${lifted ? " is-lifted" : ""}${draw && !closing ? " is-drawing" : ""}${tag ? " is-summonable" : ""}${browse ? " is-browse" : ""}`}
+            style={draw ? ({
+              "--draw-dx": `${draw.dx}px`,
+              "--draw-dy": `${draw.dy}px`,
+              "--draw-delay": `${closing ? i * EXIT_STAGGER_MS : draw.delay}ms`,
+            } as CSSProperties) : undefined}
             {...tiltProps}
-            title={nameOf(c.code)}
+            title={tag ? `${nameOf(c.code)} — ${tag}` : nameOf(c.code)}
             data-code={c.code ?? undefined}
-            data-loc={opponent ? undefined : "hand"}
-            data-seq={opponent ? undefined : i}
+            data-loc={opponent || browse ? undefined : "hand"}
+            data-seq={opponent || browse ? undefined : i}
+            onClick={onCardClick ? (e) => onCardClick(c, e) : undefined}
           >
             <div className="dhand__card">
               <CardArt code={c.code} alt={nameOf(c.code)} />
+              {tag && <span className="dhand__tag">{tag}</span>}
             </div>
           </div>
         );
