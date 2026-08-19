@@ -85,7 +85,7 @@ export function App(): JSX.Element {
           <GearIcon />
         </button>
       </nav>
-      <main className="page" role="tabpanel" aria-label={active}>
+      <main className={`page${duelVisible ? " page--duel" : ""}`} role="tabpanel" aria-label={active}>
         {!duelVisible && (
           <TabActiveContext.Provider value={true}>
             <Page />

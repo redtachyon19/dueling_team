@@ -99,6 +99,10 @@ body,
   overflow: auto;
   padding: 32px;
 }
+/* The duel runs to the bottom edge so the card-viewer divider line and the
+   life-point counter reach the bottom of the window instead of stopping short
+   at the page's bottom padding. */
+.page--duel { padding-bottom: 0; }
 
 h1 {
   margin: 0;
@@ -1176,9 +1180,6 @@ h1 {
 .dfield-over__reason { font-size: 13px; color: #9aa; }
 .dfield-over__actions { display: flex; gap: 10px; margin-top: 4px; }
 .duelboard__side { display: flex; flex-direction: column; gap: 0; }
-.duelboard__sidehead { display: flex; align-items: center; gap: 14px; font-size: 12px; color: #9fb0a4; }
-.duelboard__who { font-weight: 700; letter-spacing: 0.04em; color: #cfe; }
-.dlp { color: #ffe14d; font-variant-numeric: tabular-nums; }
 .dpiles { display: flex; gap: 10px; }
 .dpile { color: #889; font-variant-numeric: tabular-nums; }
 
@@ -1685,6 +1686,9 @@ h1 {
 
 /* Left-side card viewer panel (same look as the Cards search). */
 .duelboard__main { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; gap: 14px; }
+/* Pull the card-viewer up across the .duelboard 8px gap so its right-hand
+   divider line runs unbroken from the top bar to the bottom edge. */
+.duelboard__main > .cards__viewer { margin-top: -8px; }
 /* Coin-flip animation (centered overlay; each coin lands on its real result). */
 .dcoins { position: absolute; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; gap: 30px; pointer-events: none; }
 .dcoin-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
@@ -1720,18 +1724,86 @@ h1 {
 /* Pre-commit zone-picker hint bar. */
 .duelboard__play { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 0; }
 
-.dphase { display: flex; gap: 3px; }
-.dphase__step { font-size: 11px; font-weight: 600; color: #667; padding: 2px 6px; border: 1px solid #222; font-variant-numeric: tabular-nums; }
-.dphase__step.is-active { color: #0e1410; background: #6fcf97; border-color: #6fcf97; }
+/* Built-in corner HUD: each stack is one panel in the app's own chrome
+   (#1a1a1a / #2a2a2a, same as the toolbar and card-viewer divider), NOT a
+   floating badge — no glow, no tint. It reaches up to the top bar (top: -8px,
+   crossing the .duelboard 8px gap) and left to the card-viewer divider line
+   (left: -14px, crossing the .duelboard__main 14px gap), and drops its top/left
+   borders so those existing lines serve as its edges. The one angled edge is
+   cut toward the field so the block reads as notched into the corner. All are
+   click-through so they never block a drag onto the field. --cut is that
+   diagonal; the -8/-14 offsets track those two gaps. */
+/* The stack is just a positioner now — transparent, with a gap so each counter
+   reads as its own separate panel. */
+.dhudstack {
+  position: absolute; z-index: 30; left: -14px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  pointer-events: none;
+}
+.dhudstack--tl { top: -8px; }
+.dhudstack--bl { bottom: 0; }
+
+/* Each counter is its own panel in the app chrome, flush to the card-viewer
+   line (no left border). The panel meeting the top bar / bottom edge drops that
+   border so it merges into the frame. */
+.dhud {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 16px;
+  background: #1a1a1a; border: 1px solid #2a2a2a; border-left: none;
+  pointer-events: none;
+}
+.dhudstack--tl > .dhud:first-child { border-top: none; }
+.dhudstack--bl > .dhud:last-child { border-bottom: none; }
+.dhud__screen { display: contents; }
+.dhud__tag {
+  min-width: 34px;
+  font: 800 10px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: 0.14em; color: #7d7d7d;
+}
+.dhud__num {
+  font: 800 18px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: 0.12em; font-variant-numeric: tabular-nums;
+  color: #e6edf3;
+  transition: color 150ms ease;
+}
+.dhud--down .dhud__num { color: #ff6b6b; }
+.dhud--up .dhud__num { color: #6fe6a0; }
+
+/* Phase strip: same chrome, flush to the card-viewer line (left: -14px);
+   active cell lit. */
+.dphaserail {
+  position: absolute; z-index: 30; top: 50%; left: -14px; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 5px 7px 5px 6px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a; border-left: none;
+  pointer-events: none;
+}
+.dphaserail__inner { display: flex; flex-direction: column; gap: 3px; }
+.dphaserail__step {
+  min-width: 28px; text-align: center;
+  font: 800 11px/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: 0.06em; font-variant-numeric: tabular-nums;
+  padding: 3px 6px; border-radius: 2px;
+  color: #667; background: #111;
+}
+.dphaserail__step.is-active {
+  color: #0e1410; background: #6fcf97;
+  text-shadow: none;
+}
+/* A phase you can advance to right now: clickable (the rail is otherwise
+   click-through) and highlighted so it reads as a button. */
+button.dphaserail__step { font-family: inherit; border: none; margin: 0; }
+.dphaserail__step.is-avail {
+  pointer-events: auto; cursor: pointer;
+  color: #cfe0ff; background: #223449;
+  box-shadow: inset 0 0 0 1px #3f6293;
+  transition: background 120ms ease, color 120ms ease;
+}
+.dphaserail__step.is-avail:hover { background: #2f4a6b; color: #fff; }
 
 /* --- duel animations --- */
 .duelboard__side.is-active { box-shadow: none; }
-
-.dlp { transition: color 150ms ease; }
-.dlp--down { animation: lpHit 0.6s ease; color: #ff6b6b; }
-.dlp--up { animation: lpGain 0.6s ease; color: #6fcf97; }
-@keyframes lpHit { 0%, 100% { transform: none; } 20% { transform: translateX(-3px); } 40% { transform: translateX(3px); } 60% { transform: translateX(-2px); } }
-@keyframes lpGain { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }
 
 .dbanner {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
@@ -1757,7 +1829,7 @@ h1 {
 @keyframes summonPop { 0% { opacity: 0; transform: scale(0.55); } 70% { transform: scale(1.06); } 100% { opacity: 1; transform: scale(1); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .dbanner, .dhand__card, .dzone .dcard__art, .dlp--down, .dlp--up { animation: none; }
+  .dbanner, .dhand__card, .dzone .dcard__art { animation: none; }
   /* Skip the tumble but still land on the rolled face (spins are 360° multiples). */
   .ddie__inner { animation: none; transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); }
   .ddie__label { animation: none; opacity: 1; }
@@ -1827,7 +1899,10 @@ h1 {
    cannot overlap — no reserved padding to guess at. The row also decides which
    side the hand parks on, via order. */
 .dhandrow {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
+  /* The board runs to the window's bottom edge (so the divider line and LP
+     counter reach it), but your hand keeps the breathing room the page padding
+     used to give it — lifted 32px off the bottom. */
+  position: absolute; left: 0; right: 0; bottom: 32px; z-index: 6;
   display: flex; align-items: flex-end; gap: 14px;
   pointer-events: none;
 }

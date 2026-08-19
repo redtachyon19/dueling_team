@@ -753,16 +753,9 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
       <div className="duelboard__bar">
         <button className="btn" onClick={onExit}>← Duel</button>
         <span className="duelboard__turn">Turn {state.turn} · {state.turnPlayer === 0 ? "You" : "Opponent"}</span>
-        <PhaseTrack phase={state.phase} />
         <div className="editor__spacer" />
         <button className={`btn duelboard__logbtn${logOpen ? " is-on" : ""}`} onClick={() => setLogOpen((o) => !o)} title="Toggle the duel log (L)">Duel Log</button>
         {unsupported.length > 0 && <span className="duelboard__warn" title={unsupported.join(", ")}>{unsupported.length} card(s) unsupported</span>}
-        {prompt && (prompt.kind === "idle" || prompt.kind === "battle") &&
-          prompt.options.filter((o) => o.loc == null).map((o) => (
-            <button key={o.id} className="btn btn--primary" onClick={() => respond({ promptId: prompt.id, type: "option", id: o.id })}>
-              {o.label}
-            </button>
-          ))}
       </div>
 
       {tips && (
@@ -775,6 +768,22 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
         <CardViewer tile={preview ? { card: preview, imageId: preview.images[0] ?? preview.id } : null} />
 
         <div className="duelboard__play" ref={playRefCb}>
+          {/* Console-style HUD stacked down the left of the play area (right of
+              the card-viewer divider): turn + opponent LP top, your LP + clock
+              bottom, phase strip on the left edge. */}
+          <PhaseRail
+            phase={state.phase}
+            options={prompt && (prompt.kind === "idle" || prompt.kind === "battle") ? prompt.options.filter((o) => o.loc == null) : []}
+            onPick={prompt ? (id) => respond({ promptId: prompt.id, type: "option", id }) : undefined}
+          />
+          <div className="dhudstack dhudstack--tl">
+            <AnimatedLP value={opp.lp} />
+            <HudPanel tag="TURN" value={String(state.turn)} />
+          </div>
+          <div className="dhudstack dhudstack--bl">
+            <TimeCounter />
+            <AnimatedLP value={me.lp} />
+          </div>
           <Hand cards={opp.hand} nameOf={nameOf} actionable={EMPTY_SET} opponent />
 
           <div className="duelboard__field">
@@ -950,14 +959,64 @@ function summonVerb(frameType: string | undefined): string {
   return "Special Summon";
 }
 
-function PhaseTrack({ phase }: { phase: DuelPhase }): JSX.Element {
+/** Which phase cell advances the turn via which idle/battle option id: click BP
+ *  to enter Battle Phase, M2 for Main Phase 2, EP to end the turn. */
+const PHASE_OPT: Partial<Record<DuelPhase, string>> = { battle: "bp", main2: "m2", end: "ep" };
+
+/** Vertical phase strip pinned to the left edge of the page. The current phase
+ *  is lit; a phase you can advance to right now is clickable (this replaces the
+ *  old "Enter Battle Phase / Main Phase 2 / End Turn" buttons). */
+function PhaseRail({ phase, options = [], onPick }: { phase: DuelPhase; options?: DuelOption[]; onPick?: ((id: string) => void) | undefined }): JSX.Element {
   return (
-    <div className="dphase">
-      {PHASES.map((p) => (
-        <span key={p.key} className={`dphase__step${phase === p.key ? " is-active" : ""}`}>{p.label}</span>
-      ))}
+    <div className="dphaserail" aria-label="Turn phase">
+      <div className="dphaserail__inner">
+        {PHASES.map((p) => {
+          const active = phase === p.key;
+          const optId = PHASE_OPT[p.key];
+          const opt = optId ? options.find((o) => o.id === optId) : undefined;
+          if (opt && onPick) {
+            return (
+              <button
+                key={p.key}
+                type="button"
+                className={`dphaserail__step is-avail${active ? " is-active" : ""}`}
+                title={opt.label}
+                onClick={() => onPick(opt.id)}
+              >
+                {p.label}
+              </button>
+            );
+          }
+          return <span key={p.key} className={`dphaserail__step${active ? " is-active" : ""}`}>{p.label}</span>;
+        })}
+      </div>
     </div>
   );
+}
+
+/** A chamfered neon HUD panel: a tag and a value on a dark LCD screen. Used for
+ *  life points, the turn count and the clock. */
+function HudPanel({ tag, value, flash = "" }: { tag: string; value: string; flash?: "" | "down" | "up" }): JSX.Element {
+  return (
+    <div className={`dhud${flash ? ` dhud--${flash}` : ""}`}>
+      <span className="dhud__screen">
+        <span className="dhud__tag">{tag}</span>
+        <span className="dhud__num">{value}</span>
+      </span>
+    </div>
+  );
+}
+
+/** Wall-clock timer for the duel, counting up from when the board mounts. */
+function TimeCounter(): JSX.Element {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setSecs((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const mm = String(Math.floor(secs / 60)).padStart(2, "0");
+  const ss = String(secs % 60).padStart(2, "0");
+  return <HudPanel tag="TIME" value={`${mm}:${ss}`} />;
 }
 
 function PlayerSide({ who, p, flip, active, local = false, actionable, targets, nameOf, extraReady = false, dropKey = null, emptyPile = null }: { who: string; p: DuelState["players"][number]; flip?: boolean; active?: boolean; local?: boolean; actionable: Set<string>; targets: Set<string>; nameOf: (c: number | null | undefined) => string; extraReady?: boolean; dropKey?: string | null; emptyPile?: string | null }): JSX.Element {
@@ -981,15 +1040,9 @@ function PlayerSide({ who, p, flip, active, local = false, actionable, targets, 
       <div className="dzone-spacer" aria-hidden="true" />
     </div>
   );
-  const header = (
-    <header className="duelboard__sidehead">
-      <span className="duelboard__who">{who}</span>
-      <AnimatedLP value={p.lp} />
-    </header>
-  );
   return (
-    <section className={`duelboard__side${active ? " is-active" : ""}`}>
-      {flip ? (<>{header}{spellRow}{monsterRow}</>) : (<>{monsterRow}{spellRow}{header}</>)}
+    <section className={`duelboard__side${active ? " is-active" : ""}`} aria-label={who}>
+      {flip ? (<>{spellRow}{monsterRow}</>) : (<>{monsterRow}{spellRow}</>)}
     </section>
   );
 }
@@ -1704,6 +1757,8 @@ function CardArt({ code, alt, cls = "dcard__art" }: { code: number | null | unde
   );
 }
 
+/** Life-point counter rendered as a framed LCD badge, pinned to a field corner.
+ *  Digits roll toward the new total and flash red (loss) or green (gain). */
 function AnimatedLP({ value }: { value: number }): JSX.Element {
   const [disp, setDisp] = useState(value);
   const [flash, setFlash] = useState<"" | "down" | "up">("");
@@ -1728,7 +1783,7 @@ function AnimatedLP({ value }: { value: number }): JSX.Element {
       clearTimeout(ft);
     };
   }, [value]);
-  return <span className={`dlp${flash ? ` dlp--${flash}` : ""}`}>LP {disp}</span>;
+  return <HudPanel tag="LP" value={String(disp).padStart(5, "0")} flash={flash} />;
 }
 
 function bannerFromEvents(events: import("@duel/shared").DuelEvent[]): { text: string; tone: string } | null {
