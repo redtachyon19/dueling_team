@@ -8,7 +8,15 @@ async function ensureDir(dir: string): Promise<void> {
   await mkdir(dir, { recursive: true });
 }
 
+/** The deck box's cover art: first Extra Deck card, else first Main Deck card. */
+function coverOf(d: Deck): number | undefined {
+  return d.extra?.[0] ?? d.main?.[0];
+}
+
 function summarize(d: Deck): DeckSummary {
+  // The box cover is the first Extra Deck card, falling back to the first Main
+  // Deck card — no manual selection.
+  const cover = coverOf(d);
   return {
     id: d.id,
     name: d.name,
@@ -18,7 +26,7 @@ function summarize(d: Deck): DeckSummary {
     sideCount: d.side?.length ?? 0,
     updatedAt: d.updatedAt,
     ...(d.boxColor !== undefined ? { boxColor: d.boxColor } : {}),
-    ...(d.coverCardId !== undefined ? { coverCardId: d.coverCardId } : {}),
+    ...(cover !== undefined ? { coverCardId: cover } : {}),
   };
 }
 

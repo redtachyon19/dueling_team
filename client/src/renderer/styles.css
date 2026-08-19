@@ -605,25 +605,33 @@ h1 {
 .decklist__msg { color: #888; }
 .decklist__grid {
   flex: 1; min-height: 0; overflow-y: auto;
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px; align-content: start;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px; align-content: start;
 }
 .decklist__grid::-webkit-scrollbar { width: 0; height: 0; }
+/* No tile: just the deck box and its labels sitting on the page background —
+   no panel fill, border, or framing behind them. */
 .deckcard {
+  position: relative;
   display: flex; flex-direction: column; gap: 8px;
-  background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 0; padding: 14px;
-  transition: border-color 120ms ease;
+  background: none; border: none; padding: 0;
+  cursor: pointer;
 }
-.deckcard:hover { border-color: #555; }
+.deckcard:hover { z-index: 2; }
+.deckcard:focus-visible { outline: 2px solid #5cf; outline-offset: 2px; }
 .deckcard__thumb {
   display: flex; align-items: center; justify-content: center;
-  aspect-ratio: 1 / 1; margin: -14px -14px 0; padding: 10px 14px 0;
-  background: radial-gradient(120% 90% at 50% 30%, #232323 0%, #161616 70%);
+  aspect-ratio: 1 / 1; margin: 0; padding: 0;
+  background: none;
   overflow: hidden;
 }
-.deckthumb { width: 82%; height: 100%; }
-.deckthumb svg { transform: translateY(4%); }
-.deckcard__name { font-size: 16px; font-weight: 600; }
+/* On hover the box's opening flap is allowed to lift past the top instead of
+   being clipped. The box itself keeps its size. */
+.deckcard:hover .deckcard__thumb { overflow: visible; }
+.deckthumb { width: 94%; height: 100%; }
+/* SVG clips to its viewport by default; let the raised flap show through. */
+.deckthumb svg { transform: translateY(4%); overflow: visible; }
+.deckcard__name { font-size: 16px; font-weight: 600; text-align: center; }
 
 /* deck-box color / cover controls in the editor bar */
 .boxctl { display: flex; align-items: center; gap: 8px; }
@@ -641,9 +649,8 @@ h1 {
   position: absolute; inset: 0; width: 100%; height: 100%;
   opacity: 0; cursor: pointer; padding: 0; border: 0;
 }
-.deckcard__counts { font-size: 12px; color: #999; }
-.deckcard__tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.deckcard__actions { display: flex; gap: 8px; margin-top: auto; }
+.deckcard__counts { font-size: 12px; color: #999; text-align: center; }
+.deckcard__tags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 
 /* --- buttons / tags (shared, hard edges) --- */
 .btn {

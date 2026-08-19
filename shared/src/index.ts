@@ -117,8 +117,6 @@ export interface Deck {
   updatedAt: string;
   /** Deck-box tint (hex) shown on the deck thumbnail. */
   boxColor?: string;
-  /** Card id whose art is revealed when the deck box opens. */
-  coverCardId?: number;
 }
 
 export interface DeckSummary {
@@ -130,6 +128,8 @@ export interface DeckSummary {
   sideCount: number;
   updatedAt: string;
   boxColor?: string;
+  /** Art revealed when the box opens: the first Extra Deck card, or the first
+   *  Main Deck card when the Extra Deck is empty. Derived, never set by hand. */
   coverCardId?: number;
 }
 

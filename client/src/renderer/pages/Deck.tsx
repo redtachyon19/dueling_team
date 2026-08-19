@@ -101,6 +101,11 @@ function newDeck(): Deck {
   return { id: uid(), name: "New Deck", tags: [], main: [], extra: [], side: [], enforceLimits: true, createdAt: t, updatedAt: t };
 }
 
+/** The deck box's cover art: first Extra Deck card, else first Main Deck card. */
+function coverCardOf(deck: Deck): number | undefined {
+  return deck.extra[0] ?? deck.main[0];
+}
+
 function useElementWidth<T extends HTMLElement>(ref: React.RefObject<T | null>): number {
   const [w, setW] = useState(0);
   useEffect(() => {
@@ -139,10 +144,6 @@ function DeckList({ onOpen }: { onOpen: (d: Deck) => void }): JSX.Element {
     const d = await window.duel.decks.load(id);
     if (d) onOpen(d);
   };
-  const remove = async (id: string) => {
-    await window.duel.decks.delete(id);
-    refresh();
-  };
 
   return (
     <div className="decklist">
@@ -161,7 +162,15 @@ function DeckList({ onOpen }: { onOpen: (d: Deck) => void }): JSX.Element {
             <article
               key={d.id}
               className="deckcard"
-              onDoubleClick={() => open(d.id)}
+              role="button"
+              tabIndex={0}
+              onClick={() => open(d.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  open(d.id);
+                }
+              }}
               onMouseEnter={() => setHovered(d.id)}
               onMouseLeave={() => setHovered((h) => (h === d.id ? null : h))}
             >
@@ -182,10 +191,6 @@ function DeckList({ onOpen }: { onOpen: (d: Deck) => void }): JSX.Element {
                   {d.tags.map((t) => <span key={t} className="tag">{t}</span>)}
                 </div>
               )}
-              <div className="deckcard__actions">
-                <button className="btn" onClick={() => open(d.id)}>Edit</button>
-                <button className="btn btn--danger" onClick={() => remove(d.id)}>Delete</button>
-              </div>
             </article>
           ))}
         </div>
@@ -287,6 +292,12 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
 
   const tryExit = () => {
     if (dirty && !window.confirm("You have unsaved changes. Leave without saving?")) return;
+    onExit();
+  };
+
+  const disassemble = async () => {
+    if (!window.confirm(`Disassemble "${deck.name || "this deck"}"? This permanently deletes it.`)) return;
+    await window.duel.decks.delete(deck.id);
     onExit();
   };
 
@@ -530,14 +541,7 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
         </label>
         <DeckBoxControls
           deck={deck}
-          shown={shown}
-          coverName={deck.coverCardId != null ? nameOf(deck.coverCardId) : null}
           onColor={(hex) => mutate({ ...deck, boxColor: hex })}
-          onSetCover={(id) => mutate({ ...deck, coverCardId: id })}
-          onClearCover={() => {
-            const { coverCardId: _drop, ...rest } = deck;
-            mutate(rest);
-          }}
         />
         <div className="editor__spacer" />
         {mode === "genesys" && (
@@ -556,6 +560,13 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
         {flash && <span className="editor__flash">{flash}</span>}
         <button className="btn" onClick={doImport} title="Import a .ydk deck">Import</button>
         <ExportMenu onExport={exportDeck} />
+        <button
+          className="btn btn--danger"
+          onClick={disassemble}
+          title="Permanently delete this deck"
+        >
+          Disassemble Deck
+        </button>
         <button className="btn btn--primary" onClick={save} disabled={!dirty}>
           {dirty ? "Save" : "Saved"}
         </button>
@@ -607,19 +618,17 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
 }
 
 function DeckBoxControls({
-  deck, shown, coverName, onColor, onSetCover, onClearCover,
+  deck, onColor,
 }: {
   deck: Deck;
-  shown: CardData | null;
-  coverName: string | null;
   onColor: (hex: string) => void;
-  onSetCover: (id: number) => void;
-  onClearCover: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const color = deck.boxColor ?? defaultBoxColor(deck.id);
-  const coverUrl =
-    deck.coverCardId != null ? window.duel.cards.imageUrl(deck.coverCardId) : null;
+  // Cover art is the first Extra Deck card (or first Main Deck card), never a
+  // manual pick — so it updates as the deck is built.
+  const coverId = coverCardOf(deck);
+  const coverUrl = coverId != null ? window.duel.cards.imageUrl(coverId) : null;
   return (
     <div className="boxctl">
       <div
@@ -634,19 +643,6 @@ function DeckBoxControls({
         <span className="boxctl__swatch" style={{ background: color }} />
         <input type="color" value={color} onChange={(e) => onColor(e.target.value)} />
       </label>
-      <button
-        className="btn"
-        onClick={() => shown && onSetCover(shown.id)}
-        disabled={!shown}
-        title={shown ? `Use “${shown.name}” as the box cover` : "Preview a card first"}
-      >
-        {coverName ? "Change cover" : "Set cover"}
-      </button>
-      {deck.coverCardId != null && (
-        <button className="btn" onClick={onClearCover} title={`Cover: ${coverName ?? ""}`}>
-          Clear cover
-        </button>
-      )}
     </div>
   );
 }
