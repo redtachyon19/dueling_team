@@ -754,7 +754,6 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
         <button className="btn" onClick={onExit}>← Duel</button>
         <span className="duelboard__turn">Turn {state.turn} · {state.turnPlayer === 0 ? "You" : "Opponent"}</span>
         <div className="editor__spacer" />
-        <button className={`btn duelboard__logbtn${logOpen ? " is-on" : ""}`} onClick={() => setLogOpen((o) => !o)} title="Toggle the duel log (L)">Duel Log</button>
         {unsupported.length > 0 && <span className="duelboard__warn" title={unsupported.join(", ")}>{unsupported.length} card(s) unsupported</span>}
       </div>
 
@@ -781,6 +780,14 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
             <HudPanel tag="TURN" value={String(state.turn)} />
           </div>
           <div className="dhudstack dhudstack--bl">
+            <button
+              type="button"
+              className={`dhud dhud--btn${logOpen ? " is-on" : ""}`}
+              onClick={() => setLogOpen((o) => !o)}
+              title="Toggle the duel log (L)"
+            >
+              <span className="dhud__tag">LOG</span>
+            </button>
             <TimeCounter />
             <AnimatedLP value={me.lp} />
           </div>
@@ -1334,7 +1341,25 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
           fill: "forwards",
         },
       );
+      // Whatever turned over on the way in turns back on the way home, so the
+      // extra deck never swallows a face-up card. It finishes early in the
+      // flight: the card should already read as a back when it lands, not be
+      // caught mid-turn.
+      if (cards[i]?.faceUp === false) {
+        el.querySelector<HTMLElement>(".dhand__flip")?.animate(
+          [{ transform: "rotateY(0deg)" }, { transform: "rotateY(180deg)" }],
+          {
+            duration: EXIT_FLIGHT_MS * 0.8,
+            delay: i * EXIT_STAGGER_MS,
+            easing: "cubic-bezier(0.45, 0, 0.55, 1)",
+            fill: "forwards",
+          },
+        );
+      }
     });
+    // `cards` is read only at the instant closing flips on — it must not be a
+    // dependency, or every state tick would re-pin the row mid-flight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [closing, flyFrom, tilt]);
 
   // FLIP. Collapsing changes flex alignment, gap and margins — none of which
@@ -1381,10 +1406,15 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
         const lifted = draggingSeq === i;
         const draw = closing ? undefined : draws.get(i);
         const tag = browse && tagOf ? tagOf(c) : undefined;
+        // Face-down cards turn over as they arrive. A deck draw always does —
+        // the deck is face-down — while a browsed pile asks each card: the extra
+        // deck lies face-down, but a Pendulum sitting face-up in it (or anything
+        // in the graveyard) is already showing and just flies across.
+        const turning = browse ? c.faceUp === false : true;
         return (
           <div
             key={i}
-            className={`dhand__slot${act ? " is-actionable" : ""}${lifted ? " is-lifted" : ""}${draw && !closing ? " is-drawing" : ""}${tag ? " is-summonable" : ""}${browse ? " is-browse" : ""}`}
+            className={`dhand__slot${act ? " is-actionable" : ""}${lifted ? " is-lifted" : ""}${draw && !closing ? " is-drawing" : ""}${draw && !closing && turning ? " is-turning" : ""}${tag ? " is-summonable" : ""}${browse ? " is-browse" : ""}`}
             style={draw ? ({
               "--draw-dx": `${draw.dx}px`,
               "--draw-dy": `${draw.dy}px`,
