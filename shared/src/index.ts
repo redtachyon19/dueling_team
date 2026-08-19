@@ -115,6 +115,10 @@ export interface Deck {
   enforceLimits: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Deck-box tint (hex) shown on the deck thumbnail. */
+  boxColor?: string;
+  /** Card id whose art is revealed when the deck box opens. */
+  coverCardId?: number;
 }
 
 export interface DeckSummary {
@@ -125,6 +129,8 @@ export interface DeckSummary {
   extraCount: number;
   sideCount: number;
   updatedAt: string;
+  boxColor?: string;
+  coverCardId?: number;
 }
 
 export type CardSort =

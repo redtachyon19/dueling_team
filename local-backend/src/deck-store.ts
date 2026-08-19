@@ -17,6 +17,8 @@ function summarize(d: Deck): DeckSummary {
     extraCount: d.extra?.length ?? 0,
     sideCount: d.side?.length ?? 0,
     updatedAt: d.updatedAt,
+    ...(d.boxColor !== undefined ? { boxColor: d.boxColor } : {}),
+    ...(d.coverCardId !== undefined ? { coverCardId: d.coverCardId } : {}),
   };
 }
 

@@ -5,6 +5,7 @@ import type { PreparedCard } from "../cards/search.ts";
 import { parseYdk, serializeYdk, safeFilename, toDeckListText, toDeckJson } from "../cards/deck-io.ts";
 import { stepIndex, rangeInclusive, type ArrowKey } from "../cards/grid-nav.ts";
 import { CardViewer } from "./CardViewer.tsx";
+import { DeckThumb, defaultBoxColor } from "./DeckThumb.tsx";
 import {
   addCard,
   validateDeck,
@@ -122,6 +123,7 @@ export function Deck(): JSX.Element {
 
 function DeckList({ onOpen }: { onOpen: (d: Deck) => void }): JSX.Element {
   const [decks, setDecks] = useState<DeckSummary[] | null>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
 
   const refresh = () => {
     window.duel?.decks?.list().then(setDecks).catch(() => setDecks([]));
@@ -156,7 +158,21 @@ function DeckList({ onOpen }: { onOpen: (d: Deck) => void }): JSX.Element {
       ) : (
         <div className="decklist__grid">
           {decks.map((d) => (
-            <article key={d.id} className="deckcard" onDoubleClick={() => open(d.id)}>
+            <article
+              key={d.id}
+              className="deckcard"
+              onDoubleClick={() => open(d.id)}
+              onMouseEnter={() => setHovered(d.id)}
+              onMouseLeave={() => setHovered((h) => (h === d.id ? null : h))}
+            >
+              <div className="deckcard__thumb">
+                <DeckThumb
+                  seed={d.id}
+                  open={hovered === d.id}
+                  color={d.boxColor}
+                  coverUrl={d.coverCardId != null ? window.duel.cards.imageUrl(d.coverCardId) : null}
+                />
+              </div>
               <div className="deckcard__name">{d.name}</div>
               <div className="deckcard__counts">
                 Main {d.mainCount} · Extra {d.extraCount} · Side {d.sideCount}
@@ -512,6 +528,17 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
           />
           Enforce limits
         </label>
+        <DeckBoxControls
+          deck={deck}
+          shown={shown}
+          coverName={deck.coverCardId != null ? nameOf(deck.coverCardId) : null}
+          onColor={(hex) => mutate({ ...deck, boxColor: hex })}
+          onSetCover={(id) => mutate({ ...deck, coverCardId: id })}
+          onClearCover={() => {
+            const { coverCardId: _drop, ...rest } = deck;
+            mutate(rest);
+          }}
+        />
         <div className="editor__spacer" />
         {mode === "genesys" && (
           <span className={`editor__points${overCap ? " editor__points--over" : ""}`}>
@@ -575,6 +602,51 @@ function DeckEditor({ initial, onExit }: { initial: Deck; onExit: () => void }):
           costOf={costOf}
         />
       </div>
+    </div>
+  );
+}
+
+function DeckBoxControls({
+  deck, shown, coverName, onColor, onSetCover, onClearCover,
+}: {
+  deck: Deck;
+  shown: CardData | null;
+  coverName: string | null;
+  onColor: (hex: string) => void;
+  onSetCover: (id: number) => void;
+  onClearCover: () => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const color = deck.boxColor ?? defaultBoxColor(deck.id);
+  const coverUrl =
+    deck.coverCardId != null ? window.duel.cards.imageUrl(deck.coverCardId) : null;
+  return (
+    <div className="boxctl">
+      <div
+        className="boxctl__preview"
+        title="Deck box preview (hover to open)"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+      >
+        <DeckThumb seed={deck.id} open={open} color={color} coverUrl={coverUrl} />
+      </div>
+      <label className="boxctl__color" title="Deck box color">
+        <span className="boxctl__swatch" style={{ background: color }} />
+        <input type="color" value={color} onChange={(e) => onColor(e.target.value)} />
+      </label>
+      <button
+        className="btn"
+        onClick={() => shown && onSetCover(shown.id)}
+        disabled={!shown}
+        title={shown ? `Use “${shown.name}” as the box cover` : "Preview a card first"}
+      >
+        {coverName ? "Change cover" : "Set cover"}
+      </button>
+      {deck.coverCardId != null && (
+        <button className="btn" onClick={onClearCover} title={`Cover: ${coverName ?? ""}`}>
+          Clear cover
+        </button>
+      )}
     </div>
   );
 }

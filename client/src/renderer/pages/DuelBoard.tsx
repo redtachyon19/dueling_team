@@ -66,12 +66,14 @@ function fieldFit(x: number, y: number, tiltDeg: number): { scale: number; tilt:
   if (!best || !slot || !best.offsetWidth) return null;
   const r = best.getBoundingClientRect();
   const cardW = r.width * (slot.offsetWidth / best.offsetWidth);
-  // Horizontal parallax: the board's vanishing point sits at the field's
-  // centre (perspective-origin 50%), so a card left or right of it is seen at
-  // an angle and skews sideways. Feeding that same offset into the ghost's
-  // perspective-origin reproduces the skew — zero dead centre, growing toward
-  // the edges, flipping sign across the middle. It rides the cursor, so the
-  // cursor x is the ghost's centre.
+  // Horizontal parallax. The board's vanishing point is at the field's centre,
+  // so a card off to one side is sheared toward it — its far (top) edge pulled
+  // in more than its near (bottom) edge, exactly as the real zones are. Feeding
+  // that horizontal offset into the ghost's perspective-origin reproduces the
+  // shear (not a rotateY, which would instead make one vertical edge taller —
+  // the board does no such thing). Zero dead centre, growing toward the edges,
+  // flipping across the middle. The ghost rides the cursor, so cursor x is its
+  // centre.
   const field = document.querySelector<HTMLElement>(".duelboard__field");
   const fr = field?.getBoundingClientRect();
   const ox = fr ? fr.left + fr.width / 2 - x : 0;
@@ -843,6 +845,7 @@ export function DuelBoard({ deckId, format = "advanced", seed, opponent = "goldf
                 nameOf={nameOf}
                 actionable={EMPTY_SET}
                 browse
+                tilt={boardTilt}
                 {...(browse.extra
                   ? {
                       tagOf: (c: DuelCard) =>
@@ -1134,7 +1137,7 @@ const EXIT_FLIGHT_MS = 320;
 export const exitDurationMs = (count: number): number =>
   EXIT_FLIGHT_MS + Math.max(0, count - 1) * EXIT_STAGGER_MS + 40;
 
-type DrawAnim = { dx: number; dy: number; sx: number; sy: number; delay: number };
+type DrawAnim = { dx: number; dy: number; sx: number; sy: number; tilt: number; ox: number; delay: number };
 
 /** The card inside a pile, not the square cell around it.
  *
@@ -1146,7 +1149,7 @@ const originCard = (selector: string): Element | null => {
   return zone?.querySelector(".dslot") ?? zone;
 };
 
-function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null, browse = false, onCardClick, tagOf, flyFrom, closing = false, collapsed = false, collapsedSide = "left", collapsedTitle, avoidSide }: {
+function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null, browse = false, onCardClick, tagOf, flyFrom, closing = false, collapsed = false, collapsedSide = "left", collapsedTitle, avoidSide, tilt = 0 }: {
   cards: DuelCard[];
   actionable: Set<string>;
   nameOf: (c: number | null | undefined) => string;
@@ -1168,6 +1171,9 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
   collapsedTitle?: string;
   /** Side the collapsed hand is parked on — the browsed pile keeps clear of it. */
   avoidSide?: "left" | "right";
+  /** Board tilt (deg). A browsed pile emerges leaning by this much, matching the
+   *  mat, then flattens into the hand. */
+  tilt?: number;
 }): JSX.Element {
   const n = cards.length;
 
@@ -1192,17 +1198,24 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
     const slots = rootRef.current.querySelectorAll<HTMLElement>(".dhand__slot");
     const next = new Map<number, DrawAnim>();
     const first = n - grew;
+    // A browsed pile sits ON the mat, off to one side, so its cards emerge with
+    // the board's full perspective: rotateX for the lean and an origin shifted
+    // toward the field centre for the sideways shear (see fieldFit). Width alone
+    // is scaled — rotateX supplies the height foreshortening — so a uniform
+    // scale is right here, unlike the deck draw's per-axis squash.
+    const field = browse ? document.querySelector(".duelboard__field")?.getBoundingClientRect() : undefined;
     for (let i = first; i < n; i++) {
       const el = slots[i];
       if (!el) continue;
       const r = el.getBoundingClientRect();
+      const sx = d.width / r.width;
       next.set(i, {
         dx: d.left + d.width / 2 - (r.left + r.width / 2),
         dy: d.top + d.height / 2 - (r.top + r.height / 2),
-        // Separate axes: the mat squashes the card vertically, so a single
-        // uniform scale that matched its width would stand too tall.
-        sx: d.width / r.width,
-        sy: d.height / r.height,
+        sx,
+        sy: browse ? sx : d.height / r.height,
+        tilt: browse ? tilt : 0,
+        ox: browse && field ? field.left + field.width / 2 - (d.left + d.width / 2) : 0,
         delay: (i - first) * DRAW_STAGGER_MS,
       });
     }
@@ -1211,7 +1224,7 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
     const total = DRAW_FLIGHT_MS + (next.size - 1) * DRAW_STAGGER_MS + 60;
     const t = window.setTimeout(() => setDraws(new Map()), total);
     return () => window.clearTimeout(t);
-  }, [n, opponent, flyFrom, collapsed]);
+  }, [n, opponent, flyFrom, collapsed, browse, tilt]);
 
   // Disabled for the opponent's (non-interactive) hand and while dragging, so a
   // card being pulled out doesn't wobble.
@@ -1232,6 +1245,11 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
     // positions that have already moved.
     const slots = Array.from(root.querySelectorAll<HTMLElement>(".dhand__slot"));
     const rects = slots.map((el) => el.getBoundingClientRect());
+    // The mirror of the entry: the card sinks back onto the mat, leaning into the
+    // board's perspective (rotateX) and shearing toward the pile's side (origin
+    // offset) as it goes, so it lands looking like a card in that zone rather
+    // than a flat rectangle that merely shrank.
+    const field = document.querySelector(".duelboard__field")?.getBoundingClientRect();
     slots.forEach((el, i) => {
       const r = rects[i]!;
       el.style.position = "fixed";
@@ -1241,17 +1259,20 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
       el.style.height = `${r.height}px`;
       el.style.margin = "0";
       if (!o) return;
+      // Perspective on the pinned slot; the card inside is what rotates in it.
+      el.style.perspective = "1200px";
+      el.style.perspectiveOrigin = `calc(50% + ${(field ? field.left + field.width / 2 - (o.left + o.width / 2) : 0).toFixed(1)}px) 50%`;
+      const card = el.querySelector<HTMLElement>(".dhand__card");
+      if (!card) return;
       const dx = o.left + o.width / 2 - (r.left + r.width / 2);
       const dy = o.top + o.height / 2 - (r.top + r.height / 2);
-      // Same reasoning as the draw: land at the pile's real rendered size rather
-      // than a guessed shrink, and per-axis because the mat foreshortens height.
-      const sx = (o.width / r.width).toFixed(4);
-      const sy = (o.height / r.height).toFixed(4);
-      el.animate(
+      // Uniform scale: rotateX takes care of the height foreshortening.
+      const sc = (o.width / r.width).toFixed(4);
+      card.animate(
         [
-          { transform: "translate(0, 0) scale(1, 1) rotate(0deg)", opacity: 1, offset: 0 },
+          { transform: "translate(0, 0) scale(1) rotateX(0deg)", opacity: 1, offset: 0 },
           { opacity: 1, offset: 0.88 },
-          { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy}) rotate(0deg)`, opacity: 0, offset: 1 },
+          { transform: `translate(${dx}px, ${dy}px) scale(${sc}) rotateX(${tilt}deg)`, opacity: 0, offset: 1 },
         ],
         {
           duration: EXIT_FLIGHT_MS,
@@ -1261,7 +1282,7 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
         },
       );
     });
-  }, [closing, flyFrom]);
+  }, [closing, flyFrom, tilt]);
 
   // FLIP. Collapsing changes flex alignment, gap and margins — none of which
   // the browser can tween, so the cards used to teleport. Measure where each
@@ -1316,6 +1337,8 @@ function Hand({ cards, actionable, nameOf, opponent = false, draggingSeq = null,
               "--draw-dy": `${draw.dy}px`,
               "--draw-sx": `${draw.sx.toFixed(4)}`,
               "--draw-sy": `${draw.sy.toFixed(4)}`,
+              "--draw-tilt": `${draw.tilt}deg`,
+              "--draw-ox": `${draw.ox.toFixed(1)}px`,
               "--draw-delay": `${closing ? i * EXIT_STAGGER_MS : draw.delay}ms`,
             } as CSSProperties) : undefined}
             {...tiltProps}

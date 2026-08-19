@@ -615,7 +615,32 @@ h1 {
   transition: border-color 120ms ease;
 }
 .deckcard:hover { border-color: #555; }
+.deckcard__thumb {
+  display: flex; align-items: center; justify-content: center;
+  aspect-ratio: 1 / 1; margin: -14px -14px 0; padding: 10px 14px 0;
+  background: radial-gradient(120% 90% at 50% 30%, #232323 0%, #161616 70%);
+  overflow: hidden;
+}
+.deckthumb { width: 82%; height: 100%; }
+.deckthumb svg { transform: translateY(4%); }
 .deckcard__name { font-size: 16px; font-weight: 600; }
+
+/* deck-box color / cover controls in the editor bar */
+.boxctl { display: flex; align-items: center; gap: 8px; }
+.boxctl__preview {
+  width: 44px; height: 44px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: #141414; border: 1px solid #2a2a2a; overflow: hidden;
+}
+.boxctl__preview .deckthumb { width: 92%; height: 92%; }
+.boxctl__color { position: relative; display: inline-flex; cursor: pointer; }
+.boxctl__swatch {
+  width: 22px; height: 22px; border: 1px solid #444; display: block;
+}
+.boxctl__color input[type="color"] {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; cursor: pointer; padding: 0; border: 0;
+}
 .deckcard__counts { font-size: 12px; color: #999; }
 .deckcard__tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .deckcard__actions { display: flex; gap: 8px; margin-top: auto; }
@@ -1423,16 +1448,46 @@ h1 {
   }
   88%, 100% { transform: rotateY(0deg); }
 }
-.dhand__slot.is-drawing {
+.dhand__slot.is-drawing:not(.is-browse) {
   animation: hand-draw 520ms linear backwards;
   animation-delay: var(--draw-delay, 0ms);
   z-index: 40;
 }
-/* Only your own draws turn over. The opponent's cards are face-down before and
-   after, so spinning them would just be motion with nothing to reveal. */
-.dhand:not(.dhand--opp) .dhand__slot.is-drawing .dhand__flip {
+/* Only your own DECK draws turn over — they come off the deck face-down. Browsed
+   pile cards (graveyard / banished / extra) are already face-up, so they must
+   not flip. */
+.dhand:not(.dhand--opp) .dhand__slot.is-drawing:not(.is-browse) .dhand__flip {
   animation: hand-draw-turn 520ms linear backwards;
   animation-delay: var(--draw-delay, 0ms);
+}
+/* A browsed pile's cards emerge lying on the mat: the perspective plus an origin
+   shifted toward the field's centre gives them the same lean and sideways shear
+   as a card in that zone, and the flight below flattens them into the hand.
+   Perspective sits on the slot; the card inside is what rotates within it. */
+.dhand__slot.is-browse.is-drawing {
+  z-index: 40;
+  perspective: 1200px;
+  perspective-origin: calc(50% + var(--draw-ox, 0px)) 50%;
+}
+.dhand__slot.is-browse.is-drawing .dhand__card {
+  animation: pile-draw 520ms linear backwards;
+  animation-delay: var(--draw-delay, 0ms);
+}
+@keyframes pile-draw {
+  /* On the mat: leaned back (rotateX) and, via the origin above, sheared toward
+     the board centre. Uniform scale — rotateX foreshortens the height. */
+  0% {
+    transform: translate(var(--draw-dx, 0px), var(--draw-dy, 0px))
+      scale(var(--draw-sx, 0.8)) rotateX(var(--draw-tilt, 0deg));
+    animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
+  }
+  24% {
+    transform: translate(calc(var(--draw-dx, 0px) * 0.86), calc(var(--draw-dy, 0px) * 0.86))
+      scale(var(--draw-sx, 0.8)) rotateX(var(--draw-tilt, 0deg));
+    animation-timing-function: cubic-bezier(0.38, 0.18, 0.25, 1);
+  }
+  /* In the hand: flat and square to the screen. */
+  100% { transform: translate(0, 0) scale(1) rotateX(0deg); }
 }
 /* The two faces of a hand card. Flat and inert except during a draw, but always
    present: mounting the back face only for the flip would swap the DOM out from
@@ -1499,11 +1554,13 @@ h1 {
    Over a valid zone --fit-sx/sy take it to that zone's rendered card geometry —
    per-axis, because the mat foreshortens height more than width, and different
    per row, which is why it is measured rather than a single number. */
-/* The ghost's own perspective, matched to the mat's declared 1200px (the board's
-   own perspective lives on an ancestor this fixed element is not under). The
-   origin is nudged horizontally by --fit-ox so a card off to one side skews the
-   same way the field does — the left/right half of the parallax that a centred
-   perspective() cannot express. */
+/* The ghost's own perspective, matched to the mat's declared 1200px — the
+   board's lives on an ancestor this fixed element is not under. It gives the
+   card's rotateX / rotateY real depth instead of a flat orthographic squash. */
+/* The ghost's own perspective, matched to the mat's declared 1200px — the
+   board's lives on an ancestor this fixed element is not under. Its origin is
+   shifted horizontally by --fit-ox so an off-centre card is sheared toward the
+   board's vanishing point, the left/right half of the parallax. */
 .ddrag__persp {
   perspective: 1200px;
   perspective-origin: calc(50% + var(--fit-ox, 0px)) 50%;
@@ -1513,11 +1570,10 @@ h1 {
   width: var(--hand-w); height: var(--hand-h);
   filter: drop-shadow(0 8px 14px #000a);
   opacity: 0.92;
-  /* Over the field the ghost leans into the board's perspective: rotateX(tilt)
-     supplies the foreshortening and trapezoidal lean the real zones get, the
-     offset origin above adds the sideways skew, and --fit-scale matches its
-     width to a card at that depth. Off the field all three fall back to a flat,
-     slightly-lifted card. */
+  /* Over the field the ghost sits in the board's 3D space: rotateX(tilt) leans
+     it back like the zones, the offset origin above shears it toward the centre
+     (left/right parallax), and --fit-scale matches its width to a card at that
+     depth. Off the field all fall back to a flat, slightly-lifted card. */
   transform:
     rotateX(var(--fit-tilt, 0deg))
     scale(var(--fit-scale, 1.04));
